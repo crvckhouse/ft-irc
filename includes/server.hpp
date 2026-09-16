@@ -19,8 +19,16 @@ class Server
 private:
 	int _serverFd;
 	int _port;
+	int _clientFD;
+	std::vector<struct pollfd> _pollFds;
+	
+
 	int createSocket();
 	void bindSocket();
+	void Listener();
+	int clientAccept();
+	void setSocketOptions();
+	void setupPoll();
 public:
 	Server(int port);
 	~Server();

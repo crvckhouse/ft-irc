@@ -3,9 +3,9 @@
 
 int main()
 {
-    std::cout << "TEST 1 IRC" << std::endl;
+	std::cout << "TEST 1 IRC" << std::endl;
 
-	Server serv(4999);
-
-        return 0;
+	Server serv(4998);
+	while (1)
+		sleep(1);
 }
