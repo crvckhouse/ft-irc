@@ -8,6 +8,7 @@
 #include <arpa/inet.h> //-> for inet_ntoa()
 #include <poll.h> //-> for poll()
 #include <csignal> //-> for signal()
+#include <string>
 //-------------------------------------------------------//
 #define RED "\e[1;31m" //-> for red color
 #define WHI "\e[0;37m" //-> for white color
@@ -21,6 +22,9 @@ private:
 	int _port;
 	int _clientFD;
 	std::vector<struct pollfd> _pollFds;
+	std::vector<struct client> _clients;
+
+	
 	
 
 	int createSocket();
@@ -29,11 +33,11 @@ private:
 	int clientAccept();
 	void setSocketOptions();
 	void setupPoll();
+	void run();
 public:
 	Server(int port);
 	~Server();
 };
-
 
 
 

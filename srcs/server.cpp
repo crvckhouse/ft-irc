@@ -1,4 +1,5 @@
 #include "../includes/server.hpp"
+#include "../includes/client.hpp"
 
 Server::Server(int port)
 {
@@ -9,7 +10,8 @@ Server::Server(int port)
 	setSocketOptions();
 	bindSocket();
 	Listener();
-	_clientFD = clientAccept();
+	setupPoll();
+	run();
 }
 
 Server::~Server()
@@ -54,7 +56,7 @@ int Server::clientAccept()
 		std::cout << "Accept() error" << std::endl;
 		return (-1);
 	}
-	std::cout << "Client connected!" << std::endl;
+	std::cout << "Client connected!:" << clientFd << std::endl;
 	return clientFd;
 }
 void Server::setSocketOptions()
@@ -77,4 +79,90 @@ void Server::setupPoll()
 	serverPollFd.revents = 0;
 
 	_pollFds.push_back(serverPollFd);
+}
+void Server::run()
+{
+	while (true)
+	{
+		int pollRet;
+		pollRet = poll(_pollFds.data(), _pollFds.size(), -1);
+		if (pollRet == -1)
+		{
+			std::cout << "poll() error" << std::endl;
+			continue;
+		}
+		std::cout << "poll() returned !" << std::endl;
+		std::cout << "revents = " << _pollFds[0].revents << std::endl;
+		unsigned long pollFdSize = _pollFds.size();
+		for (long unsigned int i = 0; i < pollFdSize; i++)
+		{
+			if (_pollFds[i].revents & POLLIN)
+			{
+				if (i == 0)
+				{
+					client cl;
+					std::cout << "POLLIN detected!" << std::endl;
+					_clientFD = clientAccept();
+					if (_clientFD < 0)
+						std::cout << "Client accept Error" << std::endl;
+					else
+					{
+						cl.clientFD = _clientFD;
+						cl.buffer = "";
+						_clients.push_back(cl);
+						struct pollfd clientPollFd;
+						clientPollFd.fd = _clientFD;
+						clientPollFd.events = POLLIN;
+						clientPollFd.revents = 0;
+						_pollFds.push_back(clientPollFd);
+					}
+				}
+				else
+				{
+					int bytes_read;
+					char BUFFER[1024];
+					bytes_read = recv(_pollFds[i].fd, BUFFER, sizeof(BUFFER) - 1, 0);
+					if (bytes_read > 0)
+					{
+						BUFFER[bytes_read] = '\0';
+						for (unsigned long j = 0; j < _clients.size(); j++)
+						{
+							if (_pollFds[i].fd == _clients[j].clientFD)
+							{
+								_clients[j].buffer += BUFFER;
+								std::size_t pos = _clients[j].buffer.find("\r\n", 0);
+								if (pos != std::string::npos)
+								{
+									std::string cmd;
+									cmd = _clients[j].buffer.substr(0, pos);
+									std::cout << "COMMAND = [" << cmd << "]" << std::endl;
+									_clients[j].buffer.erase(0, pos + 2);
+									break;
+								}
+							}
+						}
+						std::cout << "Data received by client!: " << _pollFds[i].fd << " --->" << BUFFER << std::endl;
+						// send(_pollFds[i].fd, BUFFER, bytes_read, 0);
+					}
+					else if (bytes_read == 0)
+					{
+						std::cout << "Client disconnected!" << std::endl;
+						close(_pollFds[i].fd);
+						_pollFds.erase(_pollFds.begin() + i);
+						for (unsigned long j = 0; j < _clients.size(); j++)
+						{
+							if (_clients[j].clientFD == _pollFds[i].fd)
+							{
+								_clients.erase(_clients.begin() + j);
+								break;
+							}
+						}
+						i--;
+					}
+					else
+						std::cout << "recv() error!" << std::endl;
+				}
+			}
+		}
+	}
 }
