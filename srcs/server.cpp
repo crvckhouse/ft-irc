@@ -131,13 +131,14 @@ void Server::run()
 							{
 								_clients[j].buffer += BUFFER;
 								std::size_t pos = _clients[j].buffer.find("\r\n", 0);
-								if (pos != std::string::npos)
+								while (pos != std::string::npos)
 								{
 									std::string cmd;
 									cmd = _clients[j].buffer.substr(0, pos);
 									std::cout << "COMMAND = [" << cmd << "]" << std::endl;
 									_clients[j].buffer.erase(0, pos + 2);
-									break;
+									pos = _clients[j].buffer.find("\r\n");
+									parseCmd(cmd, _clients[j].clientFD);
 								}
 							}
 						}
@@ -146,17 +147,18 @@ void Server::run()
 					}
 					else if (bytes_read == 0)
 					{
+						int fd = _pollFds[i].fd;
+						close(fd);
 						std::cout << "Client disconnected!" << std::endl;
-						close(_pollFds[i].fd);
-						_pollFds.erase(_pollFds.begin() + i);
 						for (unsigned long j = 0; j < _clients.size(); j++)
 						{
-							if (_clients[j].clientFD == _pollFds[i].fd)
+							if (_clients[j].clientFD == fd)
 							{
 								_clients.erase(_clients.begin() + j);
 								break;
 							}
 						}
+						_pollFds.erase(_pollFds.begin() + i);
 						i--;
 					}
 					else
@@ -166,3 +168,55 @@ void Server::run()
 		}
 	}
 }
+
+void Server::parseCmd(std::string cmd, int clientFD)
+{
+
+	std::string part1;
+	std::string part2;
+
+	std::size_t pos = cmd.find(" ");
+	if (pos == std::string::npos)
+	{
+		part1 = cmd;
+		part2 = "";
+	}
+	else
+	{
+		part1 = cmd.substr(0, pos);
+		part2 = cmd.substr(pos + 1);
+	}
+
+	for (unsigned long j = 0; j < _clients.size(); j++)
+	{
+		if (_clients[j].clientFD == clientFD)
+		{
+			if (part1 == "NICK")
+			{
+				_clients[j].nickName = part2;
+			}
+			else if (part1 == "USER")
+			{
+				_clients[j].userName = part2;
+			}
+			else if (part1 == "JOIN")
+			{
+				// gérer JOIN
+			}
+			else if (part1 == "QUIT")
+			{
+				// gérer QUIT
+			}
+			break;
+		}
+	}
+	std::cout << "FD = " << clientFD << std::endl;
+	std::cout << "COMMAND = " << part1 << std::endl;
+	std::cout << "ARGUMENT = " << part2 << std::endl;
+	std::cout << _clients[0].nickName << std::endl;
+}
+
+// void Server::handleJoin(int clientFd, std::string channel)
+// {
+	
+// }

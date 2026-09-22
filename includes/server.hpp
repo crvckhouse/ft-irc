@@ -25,8 +25,6 @@ private:
 	std::vector<struct client> _clients;
 
 	
-	
-
 	int createSocket();
 	void bindSocket();
 	void Listener();
@@ -34,6 +32,8 @@ private:
 	void setSocketOptions();
 	void setupPoll();
 	void run();
+	void parseCmd(std::string cmd,int clientFD);
+	void handleJoin(int clientFd, std::string channel);
 public:
 	Server(int port);
 	~Server();
