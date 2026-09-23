@@ -1,5 +1,6 @@
 #include "../includes/channel.hpp"
 #include <iostream>
+#include <string>
 
 Channel::Channel(std::string channelName)
 {
@@ -8,6 +9,13 @@ Channel::Channel(std::string channelName)
 
 Channel::~Channel()
 {
+}
+
+bool Channel::hasMember()
+{
+	if (_members.size() == 0)
+		return false;
+	return true;
 }
 
 bool Channel::isMember(client *member)
@@ -25,7 +33,7 @@ void Channel::addMember(client *member)
 	{
 		_members.push_back(member);
 		std::cout << "MEMBER ADDED" << std::endl;
-		return ;
+		return;
 	}
 	std::cout << "MEMBER ALREADY EXISTS" << std::endl;
 }
@@ -45,7 +53,7 @@ void Channel::leaveChannel(client *member)
 		{
 			std::cout << "DELETE MEMBERS" << std::endl;
 			_members.erase(it);
-
+		
 			return;
 		}
 	}

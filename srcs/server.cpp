@@ -3,9 +3,10 @@
 #include "../includes/client.hpp"
 #include "../includes/channel.hpp"
 
-Server::Server(int port)
+Server::Server(const int port, const std::string passwd) : _port(port), _passwd(passwd)
 {
-	_port = port;
+	// _port = port;
+	// _passwd = passwd;
 	_serverFd = createSocket();
 	if (_serverFd == -1)
 		throw std::runtime_error("socket() failed");
@@ -111,6 +112,7 @@ void Server::run()
 					{
 						cl.clientFD = _clientFD;
 						cl.buffer = "";
+						cl.auth = false;
 						_clients.push_back(cl);
 						struct pollfd clientPollFd;
 						clientPollFd.fd = _clientFD;
@@ -173,7 +175,6 @@ void Server::run()
 
 void Server::parseCmd(std::string cmd, int clientFD)
 {
-
 	std::string part1;
 	std::string part2;
 
@@ -191,7 +192,17 @@ void Server::parseCmd(std::string cmd, int clientFD)
 
 	for (unsigned long j = 0; j < _clients.size(); j++)
 	{
-		if (_clients[j].clientFD == clientFD)
+		if (_clients[j].clientFD == clientFD && _clients[j].auth == false)
+		{
+			if (part1 == "PASS" && part2 == _passwd)
+			{
+				_clients[j].auth = true;
+				std::cout << "GOOD PASS" << std::endl;
+			}
+			else
+				std::cout << "BAD PASSWORD" << std::endl;
+		}
+		if (_clients[j].auth == true && _clients[j].clientFD == clientFD)
 		{
 			if (part1 == "NICK")
 			{
@@ -209,6 +220,7 @@ void Server::parseCmd(std::string cmd, int clientFD)
 			{
 				handlePart(&_clients[j], part2);
 			}
+
 			break;
 		}
 	}
@@ -227,8 +239,8 @@ void Server::handleJoin(client *client, std::string channelName)
 		{
 			std::cout << "ADD MEMBER" << std::endl;
 			it->addMember(client);
-			
-			return ;
+
+			return;
 		}
 	}
 
@@ -245,7 +257,13 @@ void Server::handlePart(client *client, std::string channelName)
 		if (it->getName() == channelName)
 		{
 			it->leaveChannel(client);
-			return ;
+			if (it->hasMember() == 0)
+			{
+				_Channels.erase(it);
+				std::cout << "CHANNEL ERASED" << std::endl;
+			}
+
+			return;
 		}
 	}
 	std::cout << "CHANNEL NOT FOUND / CANNOT LEAVE" << std::endl;

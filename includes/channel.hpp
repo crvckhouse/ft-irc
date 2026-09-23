@@ -15,6 +15,7 @@ public:
 	void addOperator(client* member);
 	void leaveChannel(client *member);
 	void removeOperator(client *member);
+	bool hasMember();
 	bool isMember(client *member);
 	std::string getName();
 };

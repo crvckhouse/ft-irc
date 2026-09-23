@@ -19,7 +19,8 @@ class Server
 {
 private:
 	int _serverFd;
-	int _port;
+	const int _port;
+	const std::string _passwd;
 	int _clientFD;
 	std::vector<struct pollfd> _pollFds;
 	std::vector<struct client> _clients;
@@ -36,7 +37,7 @@ private:
 	void handleJoin(client *client, std::string channelName);
 	void handlePart(client *client, std::string channelName);
 public:
-	Server(int port);
+	Server(const int port, const std::string passwd);
 	~Server();
 };
 
