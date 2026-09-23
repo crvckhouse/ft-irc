@@ -1,5 +1,7 @@
+
 #include "../includes/server.hpp"
 #include "../includes/client.hpp"
+#include "../includes/channel.hpp"
 
 Server::Server(int port)
 {
@@ -201,11 +203,11 @@ void Server::parseCmd(std::string cmd, int clientFD)
 			}
 			else if (part1 == "JOIN")
 			{
-				// gérer JOIN
+				handleJoin(&_clients[j], part2);
 			}
-			else if (part1 == "QUIT")
+			else if (part1 == "PART")
 			{
-				// gérer QUIT
+				handlePart(&_clients[j], part2);
 			}
 			break;
 		}
@@ -216,7 +218,35 @@ void Server::parseCmd(std::string cmd, int clientFD)
 	std::cout << _clients[0].nickName << std::endl;
 }
 
-// void Server::handleJoin(int clientFd, std::string channel)
-// {
-	
-// }
+void Server::handleJoin(client *client, std::string channelName)
+{
+
+	for (std::vector<Channel>::iterator it = _Channels.begin(); it != _Channels.end(); ++it)
+	{
+		if (it->getName() == channelName)
+		{
+			std::cout << "ADD MEMBER" << std::endl;
+			it->addMember(client);
+			
+			return ;
+		}
+	}
+
+	Channel newChannel(channelName);
+	newChannel.addMember(client);
+	newChannel.addOperator(client);
+	_Channels.push_back(newChannel);
+	std::cout << "NEW CHANNEL NAME : " << channelName << std::endl;
+}
+void Server::handlePart(client *client, std::string channelName)
+{
+	for (std::vector<Channel>::iterator it = _Channels.begin(); it != _Channels.end(); ++it)
+	{
+		if (it->getName() == channelName)
+		{
+			it->leaveChannel(client);
+			return ;
+		}
+	}
+	std::cout << "CHANNEL NOT FOUND / CANNOT LEAVE" << std::endl;
+}

@@ -23,7 +23,7 @@ private:
 	int _clientFD;
 	std::vector<struct pollfd> _pollFds;
 	std::vector<struct client> _clients;
-
+	std::vector<class Channel> _Channels;
 	
 	int createSocket();
 	void bindSocket();
@@ -33,7 +33,8 @@ private:
 	void setupPoll();
 	void run();
 	void parseCmd(std::string cmd,int clientFD);
-	void handleJoin(int clientFd, std::string channel);
+	void handleJoin(client *client, std::string channelName);
+	void handlePart(client *client, std::string channelName);
 public:
 	Server(int port);
 	~Server();

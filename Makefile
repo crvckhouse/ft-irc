@@ -1,7 +1,7 @@
 NAME = ft-irc
-SRC = main.cpp srcs/server.cpp
+SRC = main.cpp srcs/server.cpp srcs/channel.cpp
 OBJS = $(SRC:.cpp=.o)
-HEADERS = includes/server.hpp
+HEADERS = includes/server.hpp includes/client.hpp includes/channel.hpp 
 CXX = c++
 CXXFLAGS = -Wall -Wextra -Werror -std=c++98
 
@@ -21,4 +21,4 @@ fclean: clean
 
 re: fclean all
 
-.PHONY: all clean fclean re
+.PHONY: all clean fclean re test
