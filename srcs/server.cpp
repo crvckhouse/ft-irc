@@ -27,7 +27,7 @@ int Server::createSocket()
 	int fd;
 
 	fd = socket(AF_INET, SOCK_STREAM, 0);
-	std::cout << "Socket id : " << fd << std::endl;
+	// std::cout << "Socket id : " << fd << std::endl;
 	if (fd == -1)
 		return (-1);
 	return (fd);
@@ -42,14 +42,14 @@ void Server::bindSocket()
 
 	if (bind(_serverFd, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) == -1)
 		throw std::runtime_error("socket bend Error");
-	std::cout << "Socket bended at port : " << _port << std::endl;
+	// std::cout << "Socket bended at port : " << _port << std::endl;
 }
 
 void Server::Listener()
 {
 	if (listen(_serverFd, 10) == -1)
 		throw std::runtime_error("Listen() failed");
-	std::cout << "Server is listening at port :" << _port << std::endl;
+	// std::cout << "Server is listening at port :" << _port << std::endl;
 }
 int Server::clientAccept()
 {
@@ -59,7 +59,8 @@ int Server::clientAccept()
 		std::cout << "Accept() error" << std::endl;
 		return (-1);
 	}
-	std::cout << "Client connected!:" << clientFd << std::endl;
+	// std::cout << "Client connected!:" << clientFd << std::endl;
+	std::cout << "ACCEPTED CLIENT FD = " << clientFd << std::endl;
 	return clientFd;
 }
 void Server::setSocketOptions()
@@ -94,18 +95,23 @@ void Server::run()
 			std::cout << "poll() error" << std::endl;
 			continue;
 		}
-		std::cout << "poll() returned !" << std::endl;
-		std::cout << "revents = " << _pollFds[0].revents << std::endl;
+		// std::cout << "poll() returned !" << std::endl;
+		// std::cout << "revents = " << _pollFds[0].revents << std::endl;
 		unsigned long pollFdSize = _pollFds.size();
 		for (long unsigned int i = 0; i < pollFdSize; i++)
 		{
+			std::cout << "CHECK FD " << _pollFds[i].fd
+					  << " REVENTS = " << _pollFds[i].revents << std::endl;
 			if (_pollFds[i].revents & POLLIN)
 			{
+				std::cout << "POLLIN FD = "
+						  << _pollFds[i].fd << std::endl;
 				if (i == 0)
 				{
 					client cl;
-					std::cout << "POLLIN detected!" << std::endl;
+					// std::cout << "POLLIN detected!" << std::endl;
 					_clientFD = clientAccept();
+
 					if (_clientFD < 0)
 						std::cout << "Client accept Error" << std::endl;
 					else
@@ -114,6 +120,8 @@ void Server::run()
 						cl.buffer = "";
 						cl.auth = false;
 						_clients.push_back(cl);
+
+						std::cout << "CLIENTS SIZE = " << _clients.size() << std::endl;
 						struct pollfd clientPollFd;
 						clientPollFd.fd = _clientFD;
 						clientPollFd.events = POLLIN;
@@ -139,14 +147,14 @@ void Server::run()
 								{
 									std::string cmd;
 									cmd = _clients[j].buffer.substr(0, pos);
-									std::cout << "COMMAND = [" << cmd << "]" << std::endl;
+									// std::cout << "COMMAND = [" << cmd << "]" << std::endl;
 									_clients[j].buffer.erase(0, pos + 2);
 									pos = _clients[j].buffer.find("\r\n");
 									parseCmd(cmd, _clients[j].clientFD);
 								}
 							}
 						}
-						std::cout << "Data received by client!: " << _pollFds[i].fd << " --->" << BUFFER << std::endl;
+						// std::cout << "Data received by client!: " << _pollFds[i].fd << " --->" << BUFFER << std::endl;
 						// send(_pollFds[i].fd, BUFFER, bytes_read, 0);
 					}
 					else if (bytes_read == 0)
@@ -163,6 +171,7 @@ void Server::run()
 							}
 						}
 						_pollFds.erase(_pollFds.begin() + i);
+						pollFdSize--;
 						i--;
 					}
 					else
@@ -178,7 +187,12 @@ void Server::parseCmd(std::string cmd, int clientFD)
 	std::string part1;
 	std::string part2;
 
-	std::size_t pos = cmd.find(" ");
+	std::size_t pos = 0;
+	while (pos < cmd.size() && cmd[pos] == ' ')
+		pos++;
+	cmd = cmd.substr(pos);
+
+	pos = cmd.find(" ");
 	if (pos == std::string::npos)
 	{
 		part1 = cmd;
@@ -187,20 +201,28 @@ void Server::parseCmd(std::string cmd, int clientFD)
 	else
 	{
 		part1 = cmd.substr(0, pos);
-		part2 = cmd.substr(pos + 1);
+
+		while (pos < cmd.size() && cmd[pos] == ' ')
+			pos++;
+		part2 = cmd.substr(pos);
 	}
 
 	for (unsigned long j = 0; j < _clients.size(); j++)
 	{
 		if (_clients[j].clientFD == clientFD && _clients[j].auth == false)
 		{
-			if (part1 == "PASS" && part2 == _passwd)
+			if (_clients[j].auth == false)
 			{
-				_clients[j].auth = true;
-				std::cout << "GOOD PASS" << std::endl;
+				if (part1 == "PASS" && part2 == _passwd)
+				{
+					_clients[j].auth = true;
+					// std::cout << "GOOD PASS" << std::endl;
+				}
+				else
+					std::cout << "BAD PASSWORD" << std::endl;
+
+				break;
 			}
-			else
-				std::cout << "BAD PASSWORD" << std::endl;
 		}
 		if (_clients[j].auth == true && _clients[j].clientFD == clientFD)
 		{
@@ -220,14 +242,19 @@ void Server::parseCmd(std::string cmd, int clientFD)
 			{
 				handlePart(&_clients[j], part2);
 			}
+			else if (part1 == "PRIVMSG")
+			{
+				std::cout << "TESSSSST SEND2ALL";
+				handlePrivmsg(&_clients[j], part2);
+			}
 
 			break;
 		}
 	}
-	std::cout << "FD = " << clientFD << std::endl;
-	std::cout << "COMMAND = " << part1 << std::endl;
-	std::cout << "ARGUMENT = " << part2 << std::endl;
-	std::cout << _clients[0].nickName << std::endl;
+	// std::cout << "FD = " << clientFD << std::endl;
+	// std::cout << "COMMAND = " << part1 << std::endl;
+	// std::cout << "ARGUMENT = " << part2 << std::endl;
+	// std::cout << _clients[0].nickName << std::endl;
 }
 
 void Server::handleJoin(client *client, std::string channelName)
@@ -237,7 +264,7 @@ void Server::handleJoin(client *client, std::string channelName)
 	{
 		if (it->getName() == channelName)
 		{
-			std::cout << "ADD MEMBER" << std::endl;
+			// std::cout << "ADD MEMBER" << std::endl;
 			it->addMember(client);
 
 			return;
@@ -248,7 +275,7 @@ void Server::handleJoin(client *client, std::string channelName)
 	newChannel.addMember(client);
 	newChannel.addOperator(client);
 	_Channels.push_back(newChannel);
-	std::cout << "NEW CHANNEL NAME : " << channelName << std::endl;
+	// std::cout << "NEW CHANNEL NAME : " << channelName << std::endl;
 }
 void Server::handlePart(client *client, std::string channelName)
 {
@@ -260,11 +287,50 @@ void Server::handlePart(client *client, std::string channelName)
 			if (it->hasMember() == 0)
 			{
 				_Channels.erase(it);
-				std::cout << "CHANNEL ERASED" << std::endl;
+				// std::cout << "CHANNEL ERASED" << std::endl;
 			}
 
 			return;
 		}
 	}
 	std::cout << "CHANNEL NOT FOUND / CANNOT LEAVE" << std::endl;
+}
+
+void Server::handlePrivmsg(client *sender, std::string argument)
+{
+	size_t pos = argument.find(" ", 0);
+
+	// std:: cout << "TESSSSST SEND2ALL" ;
+	if (pos == std::string::npos)
+		return;
+	std::string dest = argument.substr(0, pos);
+	while (argument[pos] == ' ')
+		pos++;
+	std::string msg = argument.substr(pos, argument.size());
+	// std::cout << "MSG:" << msg << std::endl;
+	// std::cout << "DEST:" << dest << std::endl;
+	if (msg[0] == ':')
+		msg.erase(0, 1);
+	for (unsigned long i = 0; i < _clients.size(); i++)
+	{
+		if (_clients[i].nickName == dest)
+		{
+			send(_clients[i].clientFD, sender->nickName.c_str(), sender->nickName.size(), 0);
+			send(_clients[i].clientFD, ": ", 2, 0);
+			send(_clients[i].clientFD, msg.c_str(), msg.size(), 0);
+			return;
+		}
+	}
+	for (unsigned long i = 0; i < _Channels.size(); i++)
+	{
+		if (_Channels[i].getName() == dest)
+		{
+			_Channels[i].sendToAll(sender, msg);
+			return;
+		}
+
+		// send(_Channels[i].clientFD, sender->nickName.c_str(), sender->nickName.size(), 0);
+		// send(_clients[i].clientFD, ": ", 2, 0);
+		// send(_clients[i].clientFD, msg.c_str(), msg.size(), 0);
+	}
 }

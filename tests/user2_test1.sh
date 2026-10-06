@@ -1,0 +1,1 @@
+printf 'PASS test\r\n NICK gautier\r\n USER goat \r\n JOIN #channeltest\r\n PRIVMSG #channeltest :MSGTEST2\r\n' | nc 10.171.55.7 4999

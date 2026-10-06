@@ -1,6 +1,8 @@
 #include "../includes/channel.hpp"
 #include <iostream>
 #include <string>
+#include <sys/socket.h>
+#include <cstdio>
 
 Channel::Channel(std::string channelName)
 {
@@ -18,42 +20,62 @@ bool Channel::hasMember()
 	return true;
 }
 
-bool Channel::isMember(client *member)
+bool Channel::isMember(int fd)
 {
-	for (std::vector<client *>::iterator it = _members.begin(); it != _members.end(); ++it)
+	for (long unsigned int i = 0; i < _members.size(); i++)
 	{
-		if (member == *it)
+		if (_members[i] == fd)
 			return true;
 	}
 	return false;
 }
+// void Channel::addMember(client *member)
+// {
+// 	if (!isMember(member->clientFD))
+// 	{
+// 		_members.push_back(member->clientFD);
+// 		// std::cout << "MEMBER ADDED" << std::endl;
+// 		return;
+// 	}
+// 	std::cout << "MEMBER ALREADY EXISTS" << std::endl;
+// }
+
 void Channel::addMember(client *member)
 {
-	if (!isMember(member))
+	std::cout << "ADDING FD " << member->clientFD
+			  << " TO CHANNEL " << _name << std::endl;
+
+	if (!isMember(member->clientFD))
 	{
-		_members.push_back(member);
-		std::cout << "MEMBER ADDED" << std::endl;
+		_members.push_back(member->clientFD);
+
+		std::cout << "MEMBERS NOW = " << _members.size() << std::endl;
+
+		for (unsigned long i = 0; i < _members.size(); i++)
+			std::cout << "MEMBER FD = " << _members[i] << std::endl;
+
 		return;
 	}
+
 	std::cout << "MEMBER ALREADY EXISTS" << std::endl;
 }
 
 void Channel::addOperator(client *member)
 {
 	_operators.push_back(member);
-	std::cout << "OPERATOR ADDED" << std::endl;
+	// std::cout << "OPERATOR ADDED" << std::endl;
 }
 
 void Channel::leaveChannel(client *member)
 {
 	removeOperator(member);
-	for (std::vector<client *>::iterator it = _members.begin(); it != _members.end(); ++it)
+	for (std::vector<int>::iterator it = _members.begin(); it != _members.end(); ++it)
 	{
-		if (*it == member)
+		if (*it == member->clientFD)
 		{
-			std::cout << "DELETE MEMBERS" << std::endl;
+			// std::cout << "DELETE MEMBERS" << std::endl;
 			_members.erase(it);
-		
+
 			return;
 		}
 	}
@@ -65,7 +87,7 @@ void Channel::removeOperator(client *member)
 	{
 		if (*it == member)
 		{
-			std::cout << "DELETE OPERATOR" << std::endl;
+			// std::cout << "DELETE OPERATOR" << std::endl;
 			_operators.erase(it);
 
 			return;
@@ -77,3 +99,41 @@ std::string Channel::getName()
 {
 	return _name;
 }
+void Channel::sendToAll(client *sender, std::string msg)
+{
+	std::cout << "===== SEND TO ALL =====" << std::endl;
+	std::cout << "SENDER FD = " << sender->clientFD << std::endl;
+	std::cout << "MEMBERS SIZE = " << _members.size() << std::endl;
+
+	for (unsigned long i = 0; i < _members.size(); i++)
+	{
+		std::cout << "MEMBER[" << i << "] FD = "
+				  << _members[i] << std::endl;
+
+		if (_members[i] != sender->clientFD)
+		{
+
+			std::string response;
+
+			response = ":";
+			response += sender->nickName;
+			response += " PRIVMSG ";
+			response += getName();
+			response += " :";
+			response += msg;
+			response += "\r\n";
+
+			std::cout << "SENDING TO FD " << _members[i] << std::endl;
+			std::cout << "RESPONSE = [" << response << "]" << std::endl;
+
+			int ret = send(_members[i], response.c_str(), response.size(), 0);
+
+			std::cout << "SEND RETURN = " << ret << std::endl;
+
+			if (ret == -1)
+				perror("send");
+			send(_members[i], response.c_str(), response.size(), 0);
+		}
+	}
+}
+// 10.171.55.7

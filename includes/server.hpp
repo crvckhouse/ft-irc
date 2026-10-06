@@ -36,6 +36,7 @@ private:
 	void parseCmd(std::string cmd,int clientFD);
 	void handleJoin(client *client, std::string channelName);
 	void handlePart(client *client, std::string channelName);
+	void handlePrivmsg(client *client, std::string msg);
 public:
 	Server(const int port, const std::string passwd);
 	~Server();
