@@ -13,6 +13,13 @@ Channel::~Channel()
 {
 }
 
+bool Channel::hasOperator()
+{
+	if (_operators.size() == 0)
+		return false;
+	return true;
+}
+
 bool Channel::hasMember()
 {
 	if (_members.size() == 0)
@@ -29,6 +36,16 @@ bool Channel::isMember(int fd)
 	}
 	return false;
 }
+
+bool Channel::isOperator(int fd)
+{
+	for (long unsigned int i = 0; i < _operators.size(); i++)
+	{
+		if (_operators[i] == fd)
+			return true;
+	}
+	return false;
+}
 // void Channel::addMember(client *member)
 // {
 // 	if (!isMember(member->clientFD))
@@ -40,14 +57,14 @@ bool Channel::isMember(int fd)
 // 	std::cout << "MEMBER ALREADY EXISTS" << std::endl;
 // }
 
-void Channel::addMember(client *member)
+void Channel::addMember(int fd)
 {
-	std::cout << "ADDING FD " << member->clientFD
+	std::cout << "ADDING FD " << fd
 			  << " TO CHANNEL " << _name << std::endl;
 
-	if (!isMember(member->clientFD))
+	if (!isMember(fd))
 	{
-		_members.push_back(member->clientFD);
+		_members.push_back(fd);
 
 		std::cout << "MEMBERS NOW = " << _members.size() << std::endl;
 
@@ -60,9 +77,9 @@ void Channel::addMember(client *member)
 	std::cout << "MEMBER ALREADY EXISTS" << std::endl;
 }
 
-void Channel::addOperator(client *member)
+void Channel::addOperator(int fd)
 {
-	_operators.push_back(member);
+	_operators.push_back(fd);
 	// std::cout << "OPERATOR ADDED" << std::endl;
 }
 
@@ -83,9 +100,9 @@ void Channel::leaveChannel(client *member)
 
 void Channel::removeOperator(client *member)
 {
-	for (std::vector<client *>::iterator it = _operators.begin(); it != _operators.end(); ++it)
+	for (std::vector<int >::iterator it = _operators.begin(); it != _operators.end(); ++it)
 	{
-		if (*it == member)
+		if (*it == member->clientFD)
 		{
 			// std::cout << "DELETE OPERATOR" << std::endl;
 			_operators.erase(it);
@@ -99,6 +116,12 @@ std::string Channel::getName()
 {
 	return _name;
 }
+
+std::vector<int> Channel::getMembers()
+{
+	return _members;
+}
+
 void Channel::sendToAll(client *sender, std::string msg)
 {
 	std::cout << "===== SEND TO ALL =====" << std::endl;
@@ -132,7 +155,6 @@ void Channel::sendToAll(client *sender, std::string msg)
 
 			if (ret == -1)
 				perror("send");
-			send(_members[i], response.c_str(), response.size(), 0);
 		}
 	}
 }

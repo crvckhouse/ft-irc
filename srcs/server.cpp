@@ -114,8 +114,8 @@ void Server::run()
 
 					if (_clientFD < 0)
 						std::cout << "Client accept Error" << std::endl;
-					else
-					{
+						else
+						{
 						cl.clientFD = _clientFD;
 						cl.buffer = "";
 						cl.auth = false;
@@ -127,6 +127,7 @@ void Server::run()
 						clientPollFd.events = POLLIN;
 						clientPollFd.revents = 0;
 						_pollFds.push_back(clientPollFd);
+						send(clientPollFd.fd,"                                            ~~~~~WELCOME TO FT-IRC~~~~~",72,0);
 					}
 				}
 				else
@@ -206,7 +207,6 @@ void Server::parseCmd(std::string cmd, int clientFD)
 			pos++;
 		part2 = cmd.substr(pos);
 	}
-
 	for (unsigned long j = 0; j < _clients.size(); j++)
 	{
 		if (_clients[j].clientFD == clientFD && _clients[j].auth == false)
@@ -244,10 +244,12 @@ void Server::parseCmd(std::string cmd, int clientFD)
 			}
 			else if (part1 == "PRIVMSG")
 			{
-				std::cout << "TESSSSST SEND2ALL";
 				handlePrivmsg(&_clients[j], part2);
 			}
-
+			else if (part1 == "KICK")
+			{
+				handleKick(&_clients[j], part2);
+			}
 			break;
 		}
 	}
@@ -265,15 +267,15 @@ void Server::handleJoin(client *client, std::string channelName)
 		if (it->getName() == channelName)
 		{
 			// std::cout << "ADD MEMBER" << std::endl;
-			it->addMember(client);
+			it->addMember(client->clientFD);
 
 			return;
 		}
 	}
 
 	Channel newChannel(channelName);
-	newChannel.addMember(client);
-	newChannel.addOperator(client);
+	newChannel.addMember(client->clientFD);
+	newChannel.addOperator(client->clientFD);
 	_Channels.push_back(newChannel);
 	// std::cout << "NEW CHANNEL NAME : " << channelName << std::endl;
 }
@@ -288,6 +290,12 @@ void Server::handlePart(client *client, std::string channelName)
 			{
 				_Channels.erase(it);
 				// std::cout << "CHANNEL ERASED" << std::endl;
+			}
+			if (it->hasOperator() == 0)
+			{
+				std::vector<int> members = it->getMembers();
+				it->addOperator(members[0]);
+				send(members[0], "TEST OPERATOR EST PARTI MTN C TOI",34,0);
 			}
 
 			return;
@@ -311,6 +319,7 @@ void Server::handlePrivmsg(client *sender, std::string argument)
 	// std::cout << "DEST:" << dest << std::endl;
 	if (msg[0] == ':')
 		msg.erase(0, 1);
+
 	for (unsigned long i = 0; i < _clients.size(); i++)
 	{
 		if (_clients[i].nickName == dest)
@@ -325,12 +334,56 @@ void Server::handlePrivmsg(client *sender, std::string argument)
 	{
 		if (_Channels[i].getName() == dest)
 		{
+			if (!(_Channels[i].isMember(sender->clientFD)))
+			{
+				send(sender->clientFD, "YOU ARE NOT IN THIS CHANNEL", 28,0);
+				return ;
+			}
 			_Channels[i].sendToAll(sender, msg);
 			return;
 		}
+	}
+	send(sender->clientFD, "THIS CHANNEL OR USER DOESNT EXIST", 34,0);
 
-		// send(_Channels[i].clientFD, sender->nickName.c_str(), sender->nickName.size(), 0);
-		// send(_clients[i].clientFD, ": ", 2, 0);
-		// send(_clients[i].clientFD, msg.c_str(), msg.size(), 0);
+}
+
+void Server::handleKick(client *client, std::string argument)
+{
+	size_t pos = argument.find(" ", 0);
+
+	if (pos == std::string::npos)
+		return;
+	std::string channel = argument.substr(0, pos);
+	while (argument[pos] == ' ')
+		pos++;
+	std::string member = argument.substr(pos, argument.size());
+	for (unsigned long i = 0; i < _Channels.size(); i++)
+	{
+		if (_Channels[i].getName() == channel)
+		{
+			if ((_Channels[i].isOperator(client->clientFD)))
+			{
+				for (unsigned long j = 0; j < _clients.size(); j++)
+				{
+					if (_clients[j].nickName == member)
+					{
+						std::vector<int> members = _Channels[i].getMembers();
+						for (unsigned long k = 0; k < members.size(); k++)
+						{
+							if (_clients[j].clientFD == members[k])
+							{
+								_Channels[i].leaveChannel(&_clients[j]);
+								send(_clients[j].clientFD,"TU T FAIT BAN", 14,0);
+								send(client->clientFD,"LA PERSONNE A ETE BAN", 22,0);
+								return ;
+							}
+						}
+
+					}
+				}
+				return ;
+			}
+			send(client->clientFD, "YOU ARE NOT CHANNEL OPERATOR", 29,0);
+		}
 	}
 }

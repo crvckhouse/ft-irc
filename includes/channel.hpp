@@ -7,18 +7,21 @@ class Channel
 private:
 	std::string _name;
 	// std::vector<client *> _members;
-	std::vector<client *> _operators;
+	std::vector<int> _operators;
 	std::vector<int> _members;
 public:
 	Channel(std::string channelName);
 	~Channel();
-	void addMember(client* member);
-	void addOperator(client* member);
+	void addMember(int fd);
+	void addOperator(int fd);
 	void leaveChannel(client *member);
 	void removeOperator(client *member);
 	bool hasMember();
+	bool hasOperator();
+	bool isOperator(int fd);
 	bool isMember(int fd);
 	std::string getName();
+	std::vector<int> getMembers();
 	void  sendToAll(client *sender, std::string msg);
 };
 
