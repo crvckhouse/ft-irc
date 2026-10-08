@@ -5,8 +5,6 @@
 
 Server::Server(const int port, const std::string passwd) : _port(port), _passwd(passwd)
 {
-	// _port = port;
-	// _passwd = passwd;
 	_serverFd = createSocket();
 	if (_serverFd == -1)
 		throw std::runtime_error("socket() failed");
@@ -27,7 +25,6 @@ int Server::createSocket()
 	int fd;
 
 	fd = socket(AF_INET, SOCK_STREAM, 0);
-	// std::cout << "Socket id : " << fd << std::endl;
 	if (fd == -1)
 		return (-1);
 	return (fd);
@@ -42,14 +39,12 @@ void Server::bindSocket()
 
 	if (bind(_serverFd, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) == -1)
 		throw std::runtime_error("socket bend Error");
-	// std::cout << "Socket bended at port : " << _port << std::endl;
 }
 
 void Server::Listener()
 {
 	if (listen(_serverFd, 10) == -1)
 		throw std::runtime_error("Listen() failed");
-	// std::cout << "Server is listening at port :" << _port << std::endl;
 }
 int Server::clientAccept()
 {
@@ -59,7 +54,6 @@ int Server::clientAccept()
 		std::cout << "Accept() error" << std::endl;
 		return (-1);
 	}
-	// std::cout << "Client connected!:" << clientFd << std::endl;
 	std::cout << "ACCEPTED CLIENT FD = " << clientFd << std::endl;
 	return clientFd;
 }
@@ -95,8 +89,6 @@ void Server::run()
 			std::cout << "poll() error" << std::endl;
 			continue;
 		}
-		// std::cout << "poll() returned !" << std::endl;
-		// std::cout << "revents = " << _pollFds[0].revents << std::endl;
 		unsigned long pollFdSize = _pollFds.size();
 		for (long unsigned int i = 0; i < pollFdSize; i++)
 		{
@@ -109,13 +101,12 @@ void Server::run()
 				if (i == 0)
 				{
 					client cl;
-					// std::cout << "POLLIN detected!" << std::endl;
 					_clientFD = clientAccept();
 
 					if (_clientFD < 0)
 						std::cout << "Client accept Error" << std::endl;
-						else
-						{
+					else
+					{
 						cl.clientFD = _clientFD;
 						cl.buffer = "";
 						cl.auth = false;
@@ -127,7 +118,7 @@ void Server::run()
 						clientPollFd.events = POLLIN;
 						clientPollFd.revents = 0;
 						_pollFds.push_back(clientPollFd);
-						send(clientPollFd.fd,"                                            ~~~~~WELCOME TO FT-IRC~~~~~",72,0);
+						send(clientPollFd.fd, "                                            ~~~~~WELCOME TO FT-IRC~~~~~\n", 74, 0);
 					}
 				}
 				else
@@ -250,13 +241,17 @@ void Server::parseCmd(std::string cmd, int clientFD)
 			{
 				handleKick(&_clients[j], part2);
 			}
+			else if (part1 == "INVITE")
+			{
+				handleInvite(&_clients[j], part2);
+			}
+			else if (part1 == "TOPIC")
+			{
+				handleTopic(&_clients[j], part2);
+			}
 			break;
 		}
 	}
-	// std::cout << "FD = " << clientFD << std::endl;
-	// std::cout << "COMMAND = " << part1 << std::endl;
-	// std::cout << "ARGUMENT = " << part2 << std::endl;
-	// std::cout << _clients[0].nickName << std::endl;
 }
 
 void Server::handleJoin(client *client, std::string channelName)
@@ -266,9 +261,7 @@ void Server::handleJoin(client *client, std::string channelName)
 	{
 		if (it->getName() == channelName)
 		{
-			// std::cout << "ADD MEMBER" << std::endl;
 			it->addMember(client->clientFD);
-
 			return;
 		}
 	}
@@ -295,7 +288,7 @@ void Server::handlePart(client *client, std::string channelName)
 			{
 				std::vector<int> members = it->getMembers();
 				it->addOperator(members[0]);
-				send(members[0], "TEST OPERATOR EST PARTI MTN C TOI",34,0);
+				send(members[0], "TEST OPERATOR EST PARTI MTN C TOI", 34, 0);
 			}
 
 			return;
@@ -336,15 +329,14 @@ void Server::handlePrivmsg(client *sender, std::string argument)
 		{
 			if (!(_Channels[i].isMember(sender->clientFD)))
 			{
-				send(sender->clientFD, "YOU ARE NOT IN THIS CHANNEL", 28,0);
-				return ;
+				send(sender->clientFD, "YOU ARE NOT IN THIS CHANNEL", 28, 0);
+				return;
 			}
 			_Channels[i].sendToAll(sender, msg);
 			return;
 		}
 	}
-	send(sender->clientFD, "THIS CHANNEL OR USER DOESNT EXIST", 34,0);
-
+	send(sender->clientFD, "THIS CHANNEL OR USER DOESNT EXIST", 34, 0);
 }
 
 void Server::handleKick(client *client, std::string argument)
@@ -373,17 +365,85 @@ void Server::handleKick(client *client, std::string argument)
 							if (_clients[j].clientFD == members[k])
 							{
 								_Channels[i].leaveChannel(&_clients[j]);
-								send(_clients[j].clientFD,"TU T FAIT BAN", 14,0);
-								send(client->clientFD,"LA PERSONNE A ETE BAN", 22,0);
-								return ;
+								send(_clients[j].clientFD, "TU T FAIT BAN", 14, 0);
+								send(client->clientFD, "LA PERSONNE A ETE BAN", 22, 0);
+								return;
 							}
 						}
-
 					}
 				}
-				return ;
+				return;
 			}
-			send(client->clientFD, "YOU ARE NOT CHANNEL OPERATOR", 29,0);
+			send(client->clientFD, "YOU ARE NOT CHANNEL OPERATOR", 29, 0);
+		}
+	}
+}
+void Server::handleInvite(client *client, std::string argument)
+{
+	size_t pos = argument.find(" ", 0);
+
+	if (pos == std::string::npos)
+		return;
+	std::string invited = argument.substr(0, pos);
+	while (argument[pos] == ' ')
+		pos++;
+	std::string channel = argument.substr(pos, argument.size());
+	for (unsigned long i = 0; i < _Channels.size(); i++)
+	{
+		if (_Channels[i].getName() == channel)
+		{
+			if ((_Channels[i].isOperator(client->clientFD)))
+			{
+
+				for (unsigned long j = 0; j < _clients.size(); j++)
+				{
+					if (_clients[j].nickName == invited)
+					{
+						_Channels[i].addMember(_clients[j].clientFD);
+						send(_clients[j].clientFD, "YOU ARE INVITED TO A NEW CHANNEL", 33, 0);
+						return;
+					}
+				}
+				return;
+			}
+			return;
+		}
+	}
+}
+void Server::handleTopic(client *client, std::string argument)
+{
+	size_t pos = argument.find(" ", 0);
+	std::string topic;
+	std::string channel;
+	if (pos == std::string::npos)
+	{
+		channel = argument;
+		topic = "";
+	}
+	else
+	{
+		channel = argument.substr(0, pos);
+		while (pos < argument.size() && argument[pos] == ' ')
+			pos++;
+		topic = argument.substr(pos);
+	}
+	if (!(topic.empty()) && topic[0] == ':')
+		topic.erase(0, 1);
+	for (unsigned long i = 0; i < _Channels.size(); i++)
+	{
+		if (_Channels[i].getName() == channel)
+		{
+			if (topic.empty())
+			{
+				send(client->clientFD, _Channels[i].getTopic().c_str(), (_Channels[i].getTopic()).size(), 0);
+			}
+			else
+			{
+				_Channels[i].newTopic(topic);
+				send(client->clientFD, "TOPIC IS NOW :", 14, 0);
+				send(client->clientFD, _Channels[i].getTopic().c_str(), (_Channels[i].getTopic()).size(), 0);
+			}
+			return;
 		}
 	}
 }

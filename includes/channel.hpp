@@ -9,6 +9,7 @@ private:
 	// std::vector<client *> _members;
 	std::vector<int> _operators;
 	std::vector<int> _members;
+	std::string _topic;
 public:
 	Channel(std::string channelName);
 	~Channel();
@@ -20,7 +21,9 @@ public:
 	bool hasOperator();
 	bool isOperator(int fd);
 	bool isMember(int fd);
+	void newTopic(std::string topic);
 	std::string getName();
+	std::string getTopic();
 	std::vector<int> getMembers();
 	void  sendToAll(client *sender, std::string msg);
 };

@@ -38,6 +38,8 @@ private:
 	void handlePart(client *client, std::string channelName);
 	void handlePrivmsg(client *client, std::string msg);
 	void handleKick(client *client, std::string argument);
+	void handleInvite(client *client, std::string argument);
+	void handleTopic(client *client, std::string argument);
 public:
 	Server(const int port, const std::string passwd);
 	~Server();

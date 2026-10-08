@@ -122,6 +122,16 @@ std::vector<int> Channel::getMembers()
 	return _members;
 }
 
+void Channel::newTopic(std::string topic)
+{
+	_topic = topic;
+}
+
+std::string Channel::getTopic()
+{
+	return _topic;
+}
+
 void Channel::sendToAll(client *sender, std::string msg)
 {
 	std::cout << "===== SEND TO ALL =====" << std::endl;
