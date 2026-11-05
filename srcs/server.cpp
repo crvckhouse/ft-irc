@@ -1,4 +1,3 @@
-
 #include "../includes/server.hpp"
 #include "../includes/client.hpp"
 #include "../includes/channel.hpp"
@@ -19,7 +18,6 @@ Server::~Server()
 {
 	close(_serverFd);
 }
-
 int Server::createSocket()
 {
 	int fd;
@@ -110,6 +108,9 @@ void Server::run()
 						cl.clientFD = _clientFD;
 						cl.buffer = "";
 						cl.auth = false;
+						cl.nick = false;
+						cl.user = false;
+						cl.registered = false;
 						_clients.push_back(cl);
 
 						std::cout << "CLIENTS SIZE = " << _clients.size() << std::endl;
@@ -118,7 +119,6 @@ void Server::run()
 						clientPollFd.events = POLLIN;
 						clientPollFd.revents = 0;
 						_pollFds.push_back(clientPollFd);
-						send(clientPollFd.fd, "                                            ~~~~~WELCOME TO FT-IRC~~~~~\n", 74, 0);
 					}
 				}
 				else
@@ -142,6 +142,7 @@ void Server::run()
 									// std::cout << "COMMAND = [" << cmd << "]" << std::endl;
 									_clients[j].buffer.erase(0, pos + 2);
 									pos = _clients[j].buffer.find("\r\n");
+									std::cout << "COMMAND RECEIVED: [" << cmd << "]" << std::endl;
 									parseCmd(cmd, _clients[j].clientFD);
 								}
 							}
@@ -173,7 +174,49 @@ void Server::run()
 		}
 	}
 }
+void Server::sendNumber(int clientFD, int code,
+						std::string nickname, std::string params, std::string text)
+{
+	std::ostringstream response;
+	response << ":ft_irc ";
 
+	if (code < 100)
+		response << "0";
+	if (code < 10)
+		response << "0";
+
+	response << code << " " << nickname;
+
+	if (!params.empty())
+		response << " " << params;
+
+	if (!text.empty())
+		response << " :" << text;
+
+	response << "\r\n";
+	sendMsg(clientFD, response.str());
+}
+void Server::tryRegister(client *client)
+{
+	if (client->registered)
+		return;
+	if (!client->auth || !client->nick || !client->user)
+		return;
+
+	client->registered = true;
+
+	sendNumber(client->clientFD, 001, client->nickName, "",
+			   "Welcome to ft_irc");
+
+	sendNumber(client->clientFD, 002, client->nickName, "",
+			   "Your host is ft_irc");
+
+	sendNumber(client->clientFD, 003, client->nickName, "",
+			   "This server was created today");
+
+	sendNumber(client->clientFD, 004, client->nickName,
+			   "ft_irc 1.0 oi", "");
+}
 void Server::parseCmd(std::string cmd, int clientFD)
 {
 	std::string part1;
@@ -198,34 +241,91 @@ void Server::parseCmd(std::string cmd, int clientFD)
 			pos++;
 		part2 = cmd.substr(pos);
 	}
+	if (part1 == "CAP")
+	{
+		if (part2 == "LS 302" || part2 == "LS")
+			sendMsg(clientFD, ":ft_irc CAP * LS :\r\n");
+		return;
+	}
+	if (part1 == "PING")
+	{
+		if (part2.empty())
+			sendMsg(clientFD, "PONG\r\n");
+		else
+			sendMsg(clientFD, "PONG " + part2 + "\r\n");
+		return;
+	}
 	for (unsigned long j = 0; j < _clients.size(); j++)
 	{
-		if (_clients[j].clientFD == clientFD && _clients[j].auth == false)
-		{
-			if (_clients[j].auth == false)
-			{
-				if (part1 == "PASS" && part2 == _passwd)
-				{
-					_clients[j].auth = true;
-					// std::cout << "GOOD PASS" << std::endl;
-				}
-				else
-					std::cout << "BAD PASSWORD" << std::endl;
+		if (_clients[j].clientFD != clientFD)
+			continue;
 
-				break;
+		if (part1 == "PASS")
+		{
+			if (_clients[j].auth)
+			{
+				return;
+			}
+			if (part2 == _passwd)
+			{
+				_clients[j].auth = true;
+				tryRegister(&_clients[j]);
+			}
+			else
+			{
+				sendNumber(clientFD, 464, "*", "", "Password incorrect");
+			}
+			return;
+		}
+
+		if (part1 == "NICK" && _clients[j].nick == false && _clients[j].clientFD == clientFD)
+		{
+			if (part2 == "")
+			{
+				sendNumber(clientFD, 431, "*", "", "No nickname given");
+				return;
+			}
+			else
+			{
+				for (unsigned long k = 0; k < _clients.size(); k++)
+				{
+					if (_clients[k].clientFD != clientFD && _clients[k].nickName == part2)
+					{
+						sendNumber(clientFD, 433, "*", _clients[k].nickName,
+								   "Nickname is already in use");
+						return;
+					}
+				}
+				_clients[j].nickName = part2;
+				_clients[j].nick = true;
+				tryRegister(&_clients[j]);
+				return;
 			}
 		}
-		if (_clients[j].auth == true && _clients[j].clientFD == clientFD)
+
+		if (part1 == "USER" && _clients[j].user == false && _clients[j].clientFD == clientFD)
 		{
-			if (part1 == "NICK")
+			if (part2.empty())
 			{
-				_clients[j].nickName = part2;
+				sendNumber(clientFD, 461, "*", "USER",
+						   "Not enough parameters");
+				return;
 			}
-			else if (part1 == "USER")
-			{
-				_clients[j].userName = part2;
-			}
-			else if (part1 == "JOIN")
+			_clients[j].userName = part2;
+			_clients[j].user = true;
+			tryRegister(&_clients[j]);
+			return;
+		}
+
+		if (!_clients[j].registered)
+		{
+			sendNumber(clientFD, 451, "*", "", "You have not registered");
+			return;
+		}
+
+		if (_clients[j].registered)
+		{
+			if (part1 == "JOIN")
 			{
 				handleJoin(&_clients[j], part2);
 			}
@@ -249,19 +349,125 @@ void Server::parseCmd(std::string cmd, int clientFD)
 			{
 				handleTopic(&_clients[j], part2);
 			}
-			break;
+			else if (part1 == "MODE")
+			{
+				handleMode(&_clients[j], part2);
+			}
+			else if (part1 == "NOTICE")
+			{
+				handleNotice(&_clients[j], part2);
+			}
+			else if (part1 == "QUIT")
+			{
+				handleQuit(&_clients[j], part2);
+				handleClose(&_clients[j]);
+			}
+			return;
 		}
 	}
+}
+void Server::sendMsg(int clientFD, std::string msg)
+{
+	send(clientFD, msg.c_str(), msg.size(), 0);
+}
+
+void Server::handleClose(client *client)
+{
+	client->buffer.clear();
+	shutdown(client->clientFD, SHUT_RDWR);
 }
 
 void Server::handleJoin(client *client, std::string channelName)
 {
+	std::string password;
+	std::string channel_name;
+	size_t pos = channelName.find(" ", 0);
 
+	if (pos != std::string::npos)
+	{
+		size_t passPos = pos + 1;
+		while (passPos < channelName.size() && channelName[passPos] == ' ')
+			passPos++;
+		password = channelName.substr(passPos);
+		channelName = channelName.substr(0, pos);
+	}
 	for (std::vector<Channel>::iterator it = _Channels.begin(); it != _Channels.end(); ++it)
 	{
-		if (it->getName() == channelName)
+		if (it->getName() == channelName && it->getInviteonly() == false)
 		{
-			it->addMember(client->clientFD);
+			if (it->getPass() != "" && (it->checkChannelPass(client->clientFD, password) == false))
+			{
+				return;
+			}
+			else
+			{
+				if (it->getMembersCount() == it->getMembersLimit())
+				{
+					send(client->clientFD, "CHANNEL FULL\n", 14, 0);
+				}
+				else
+				{
+					if (it->isMember(client->clientFD))
+					{
+						sendNumber(client->clientFD, 443, client->nickName,
+								   client->nickName + " " + channelName,
+								   " is already on channel");
+						return;
+					}
+					// std::string response;
+
+					// response = ":";
+					// response += client->nickName;
+					// response += "!";
+					// response += client->nickName;
+					// response += "@localhost JOIN :";
+					// response += channelName;
+					// response += "\r\n";
+					// sendMsg(client->clientFD, response);
+					// sendNumber(client->clientFD, 353,
+					// 		   client->nickName, "= " + channelName, "@" + client->nickName);
+					// sendNumber(client->clientFD, 366,
+					// 		   client->nickName, channelName, "End of /NAMES list");
+					it->addMember(client->clientFD);
+					it->addMembersCount();
+					std::string response;
+					response = ":";
+					response += client->nickName;
+					response += "!";
+					response += client->nickName;
+					response += "@localhost JOIN :";
+					response += channelName;
+					response += "\r\n";
+					std::vector<int> members = it->getMembers();
+					for (unsigned long k = 0; k < members.size(); k++)
+						sendMsg(members[k], response);
+
+					std::string names;
+					for (unsigned long k = 0; k < members.size(); k++)
+					{
+						for (unsigned long l = 0; l < _clients.size(); l++)
+						{
+							if (_clients[l].clientFD != members[k])
+								continue;
+							if (!names.empty())
+								names += " ";
+							if (it->isOperator(members[k]))
+								names += "@";
+							names += _clients[l].nickName;
+							break;
+						}
+					}
+					sendNumber(client->clientFD, 353,
+							   client->nickName, "= " + channelName, names);
+					sendNumber(client->clientFD, 366,
+							   client->nickName, channelName, "End of /NAMES list");
+				}
+			}
+			return;
+		}
+		else if (it->getName() == channelName && it->getInviteonly() == true)
+		{
+			send(client->clientFD, "YOU NEED TO BE INVITED TO JOIN THIS CHANNEL\n", 45, 0);
 			return;
 		}
 	}
@@ -270,27 +476,142 @@ void Server::handleJoin(client *client, std::string channelName)
 	newChannel.addMember(client->clientFD);
 	newChannel.addOperator(client->clientFD);
 	_Channels.push_back(newChannel);
-	// std::cout << "NEW CHANNEL NAME : " << channelName << std::endl;
+	std::string response;
+	response = ":";
+	response += client->nickName;
+	response += "!";
+	response += client->nickName;
+	response += "@localhost JOIN :";
+	response += channelName;
+	response += "\r\n";
+	sendMsg(client->clientFD, response);
+	sendNumber(client->clientFD, 353,
+			   client->nickName, "= " + channelName, "@" + client->nickName);
+	sendNumber(client->clientFD, 366,
+			   client->nickName, channelName, "End of /NAMES list");
 }
+
+void Server::handleNotice(client *sender, std::string argument)
+{
+	size_t pos = argument.find(" ", 0);
+	std::cout << "NOTICE HANDLER CALLED" << std::endl;
+	// std:: cout << "TESSSSST SEND2ALL" ;
+	if (pos == std::string::npos)
+		return;
+	std::string dest = argument.substr(0, pos);
+	while (pos < argument.size() && argument[pos] == ' ')
+		pos++;
+	std::string msg = argument.substr(pos, argument.size());
+	if (msg.empty())
+		return;
+	if (msg[0] == ':')
+		msg.erase(0, 1);
+
+	std::cout << "ARGUMENT = [" << argument << "]" << std::endl;
+	std::cout << "DEST = [" << dest << "]" << std::endl;
+	std::cout << "MSG = [" << msg << "]" << std::endl;
+	for (unsigned long i = 0; i < _clients.size(); i++)
+	{
+		if (_clients[i].nickName == dest)
+		{
+			std::string username = sender->userName;
+			std::size_t usernameEnd = username.find(" ");
+
+			if (usernameEnd != std::string::npos)
+				username.erase(usernameEnd);
+
+			std::string response;
+
+			response = ":";
+			response += sender->nickName;
+			response += "!";
+			response += username;
+			response += "@localhost NOTICE ";
+			response += dest;
+			response += " :";
+			response += msg;
+			response += "\r\n";
+
+			sendMsg(_clients[i].clientFD, response);
+			return;
+		}
+	}
+	for (unsigned long i = 0; i < _Channels.size(); i++)
+	{
+		if (_Channels[i].getName() == dest)
+		{
+			if (!(_Channels[i].isMember(sender->clientFD)))
+			{
+				return;
+			}
+			_Channels[i].sendNoticeToAll(sender, msg);
+			return;
+		}
+	}
+}
+
 void Server::handlePart(client *client, std::string channelName)
 {
 	for (std::vector<Channel>::iterator it = _Channels.begin(); it != _Channels.end(); ++it)
 	{
 		if (it->getName() == channelName)
 		{
+			if (!it->isMember(client->clientFD))
+			{
+				sendNumber(client->clientFD, 442, client->nickName,
+						   channelName, "You're not on that channel");
+				return;
+			}
+
+			std::string username = client->userName;
+			std::size_t usernameEnd = username.find(" ");
+			if (usernameEnd != std::string::npos)
+				username.erase(usernameEnd);
+
+			std::string response = ":";
+			response += client->nickName;
+			response += "!";
+			response += username;
+			response += "@localhost PART ";
+			response += channelName;
+			response += "\r\n";
+
+			std::vector<int> members = it->getMembers();
+			for (unsigned long i = 0; i < members.size(); i++)
+				sendMsg(members[i], response);
+
 			it->leaveChannel(client);
+			it->RemoveMembersCount();
 			if (it->hasMember() == 0)
 			{
 				_Channels.erase(it);
-				// std::cout << "CHANNEL ERASED" << std::endl;
+				return;
 			}
 			if (it->hasOperator() == 0)
 			{
-				std::vector<int> members = it->getMembers();
-				it->addOperator(members[0]);
-				send(members[0], "TEST OPERATOR EST PARTI MTN C TOI", 34, 0);
-			}
+				members = it->getMembers();
+				if (!members.empty())
+				{
+					it->addOperator(members[0]);
 
+					std::string modeResponse = ":ft_irc MODE ";
+					modeResponse += channelName;
+					modeResponse += " +o ";
+					for (unsigned long i = 0; i < _clients.size(); i++)
+					{
+						if (_clients[i].clientFD == members[0])
+						{
+							modeResponse += _clients[i].nickName;
+							break;
+						}
+					}
+					modeResponse += "\r\n";
+
+					std::vector<int> remaining = it->getMembers();
+					for (unsigned long i = 0; i < remaining.size(); i++)
+						sendMsg(remaining[i], modeResponse);
+				}
+			}
 			return;
 		}
 	}
@@ -299,27 +620,48 @@ void Server::handlePart(client *client, std::string channelName)
 
 void Server::handlePrivmsg(client *sender, std::string argument)
 {
-	size_t pos = argument.find(" ", 0);
 
+	size_t pos = argument.find(" ", 0);
+	std::cout << "PRIVMSG HANDLER CALLED" << std::endl;
 	// std:: cout << "TESSSSST SEND2ALL" ;
 	if (pos == std::string::npos)
 		return;
 	std::string dest = argument.substr(0, pos);
-	while (argument[pos] == ' ')
+	while (pos < argument.size() && argument[pos] == ' ')
 		pos++;
 	std::string msg = argument.substr(pos, argument.size());
-	// std::cout << "MSG:" << msg << std::endl;
-	// std::cout << "DEST:" << dest << std::endl;
+	if (msg.empty())
+	{
+		sendNumber(sender->clientFD, 412, sender->nickName, "",
+				   "No text to send");
+		return;
+	}
 	if (msg[0] == ':')
 		msg.erase(0, 1);
 
+	std::cout << "ARGUMENT = [" << argument << "]" << std::endl;
+	std::cout << "DEST = [" << dest << "]" << std::endl;
+	std::cout << "MSG = [" << msg << "]" << std::endl;
 	for (unsigned long i = 0; i < _clients.size(); i++)
 	{
 		if (_clients[i].nickName == dest)
 		{
-			send(_clients[i].clientFD, sender->nickName.c_str(), sender->nickName.size(), 0);
-			send(_clients[i].clientFD, ": ", 2, 0);
-			send(_clients[i].clientFD, msg.c_str(), msg.size(), 0);
+			std::string username = sender->userName;
+			std::size_t usernameEnd = username.find(" ");
+
+			if (usernameEnd != std::string::npos)
+				username.erase(usernameEnd);
+
+			std::string response = ":";
+			response += sender->nickName;
+			response += "!";
+			response += sender->nickName;
+			response += "@localhost PRIVMSG ";
+			response += dest;
+			response += " :";
+			response += msg;
+			response += "\r\n";
+			sendMsg(_clients[i].clientFD, response);
 			return;
 		}
 	}
@@ -367,6 +709,7 @@ void Server::handleKick(client *client, std::string argument)
 								_Channels[i].leaveChannel(&_clients[j]);
 								send(_clients[j].clientFD, "TU T FAIT BAN", 14, 0);
 								send(client->clientFD, "LA PERSONNE A ETE BAN", 22, 0);
+								_Channels[i].RemoveMembersCount();
 								return;
 							}
 						}
@@ -399,7 +742,14 @@ void Server::handleInvite(client *client, std::string argument)
 				{
 					if (_clients[j].nickName == invited)
 					{
+
+						if (_Channels[i].getMembersCount() == _Channels[i].getMembersLimit())
+						{
+							send(client->clientFD, "CHANNEL FULL, CANT INVITE\n", 28, 0);
+							return;
+						}
 						_Channels[i].addMember(_clients[j].clientFD);
+						_Channels[i].addMembersCount();
 						send(_clients[j].clientFD, "YOU ARE INVITED TO A NEW CHANNEL", 33, 0);
 						return;
 					}
@@ -412,6 +762,7 @@ void Server::handleInvite(client *client, std::string argument)
 }
 void Server::handleTopic(client *client, std::string argument)
 {
+
 	size_t pos = argument.find(" ", 0);
 	std::string topic;
 	std::string channel;
@@ -433,17 +784,154 @@ void Server::handleTopic(client *client, std::string argument)
 	{
 		if (_Channels[i].getName() == channel)
 		{
-			if (topic.empty())
+			if (_Channels[i].isMember(client->clientFD))
 			{
-				send(client->clientFD, _Channels[i].getTopic().c_str(), (_Channels[i].getTopic()).size(), 0);
+				if (topic.empty())
+				{
+					send(client->clientFD, "TOPIC: ", 7, 0);
+					std::string topicName;
+					topicName += _Channels[i].getTopic();
+					send(client->clientFD, topicName.c_str(), topicName.size(), 0);
+				}
+				else
+				{
+					if (_Channels[i].getTopicrestriction() == false ||
+						(_Channels[i].getTopicrestriction() == true &&
+						 _Channels[i].isOperator(client->clientFD) == true))
+					{
+						_Channels[i].newTopic(topic);
+						send(client->clientFD, "TOPIC IS NOW :", 14, 0);
+						send(client->clientFD, _Channels[i].getTopic().c_str(), (_Channels[i].getTopic()).size(), 0);
+					}
+					else
+						send(client->clientFD, "TOPIC CREATION FOR OPERATORS ONLY\n", 35, 0);
+				}
 			}
 			else
-			{
-				_Channels[i].newTopic(topic);
-				send(client->clientFD, "TOPIC IS NOW :", 14, 0);
-				send(client->clientFD, _Channels[i].getTopic().c_str(), (_Channels[i].getTopic()).size(), 0);
-			}
+				send(client->clientFD, "YOU MUST BE CHANNEL MEMBER TO CREATE TOPIC\n", 44, 0);
 			return;
 		}
+	}
+	send(client->clientFD, "PLEASE ENTER CORRECT CHANNEL NAME\n", 35, 0);
+}
+
+void Server::handleMode(client *client, std::string argument)
+{
+	std::string channel;
+	std::string mode;
+	std::string dest;
+	size_t pos = 0;
+	size_t temp_pos;
+
+	pos = argument.find(" ");
+	if (pos == std::string::npos)
+	{
+		send(client->clientFD, "MODE NEED ARGUMENT\n", 20, 0);
+		return;
+	}
+	channel = argument.substr(0, pos);
+
+	pos++;
+	while (pos < argument.size() && argument[pos] == ' ')
+		pos++;
+	temp_pos = pos;
+
+	pos = argument.find(" ", temp_pos);
+	if (pos == std::string::npos)
+	{
+		mode = argument.substr(temp_pos);
+		dest = "";
+	}
+	else
+	{
+		mode = argument.substr(temp_pos, pos - temp_pos);
+		pos++;
+		while (pos < argument.size() && argument[pos] == ' ')
+			pos++;
+		dest = argument.substr(pos);
+	}
+
+	for (unsigned long i = 0; i < _Channels.size(); i++)
+	{
+		if (_Channels[i].getName() == channel)
+		{
+			_Channels[i].checkModeOp(client->clientFD, mode, dest);
+			return;
+		}
+		else
+		{
+			send(client->clientFD, "ENTER CORRECT CHANNEL\n", 23, 0);
+		}
+	}
+}
+
+void Server::handleQuit(client *client, std::string argument)
+{
+	std::string reason = argument;
+
+	if (reason.empty())
+		reason = "Quit";
+	else if (reason[0] == ':')
+		reason.erase(0, 1);
+
+	std::string username = client->userName;
+	std::size_t usernameEnd = username.find(" ");
+
+	if (usernameEnd != std::string::npos)
+		username.erase(usernameEnd);
+	std::string response = ":";
+	response += client->nickName;
+	response += "!";
+	response += username;
+	response += "@localhost QUIT :";
+	response += reason;
+	response += "\r\n";
+
+	for (unsigned int i = 0; i < _Channels.size();)
+	{
+		if (!_Channels[i].isMember(client->clientFD))
+		{
+			i++;
+			continue;
+		}
+		std::vector<int> members = _Channels[i].getMembers();
+		for (unsigned int j = 0; j < members.size(); j++)
+		{
+			if (members[j] != client->clientFD)
+				sendMsg(members[j], response);
+		}
+		_Channels[i].leaveChannel(client);
+		_Channels[i].RemoveMembersCount();
+		if (!_Channels[i].hasMember())
+		{
+			_Channels.erase(_Channels.begin() + i);
+			continue;
+		}
+		if (!_Channels[i].hasOperator())
+		{
+			std::vector<int> remaining = _Channels[i].getMembers();
+			if (!remaining.empty())
+			{
+				_Channels[i].addOperator(remaining[0]);
+
+				std::string modeResponse = ":ft_irc MODE ";
+				modeResponse += _Channels[i].getName();
+				modeResponse += " +o ";
+
+				for (unsigned long j = 0; j < _clients.size(); j++)
+				{
+					if (_clients[j].clientFD == remaining[0])
+					{
+						modeResponse += _clients[j].nickName;
+						break;
+					}
+				}
+				modeResponse += "\r\n";
+
+				for (unsigned long j = 0; j < remaining.size(); j++)
+					sendMsg(remaining[j], modeResponse);
+			}
+		}
+		i++;
 	}
 }

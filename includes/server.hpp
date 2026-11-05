@@ -9,11 +9,14 @@
 #include <poll.h> //-> for poll()
 #include <csignal> //-> for signal()
 #include <string>
+#include <sstream>
 //-------------------------------------------------------//
-#define RED "\e[1;31m" //-> for red color
-#define WHI "\e[0;37m" //-> for white color
-#define GRE "\e[1;32m" //-> for green color
-#define YEL "\e[1;33m" //-> for yellow color
+#define RESET   "\033[0m"
+#define ROUGE   "\033[31m"
+#define VERT    "\033[32m"
+#define JAUNE   "\033[33m"
+#define BLEU    "\033[34m"
+#define GRAS    "\033[1m"
 
 class Server
 {
@@ -33,6 +36,10 @@ private:
 	void setSocketOptions();
 	void setupPoll();
 	void run();
+	void sendMsg(int clientFD, std::string msg);
+	void sendNumber(int clientFD, int code,
+    std::string nick, std::string params,
+    std::string text);
 	void parseCmd(std::string cmd,int clientFD);
 	void handleJoin(client *client, std::string channelName);
 	void handlePart(client *client, std::string channelName);
@@ -40,6 +47,11 @@ private:
 	void handleKick(client *client, std::string argument);
 	void handleInvite(client *client, std::string argument);
 	void handleTopic(client *client, std::string argument);
+	void handleMode(client *client, std::string argument);
+	void handleNotice(client *client, std::string argument);
+	void handleQuit(client *client, std::string argument);	
+	void tryRegister(client *client);
+	void handleClose(client *client);
 public:
 	Server(const int port, const std::string passwd);
 	~Server();

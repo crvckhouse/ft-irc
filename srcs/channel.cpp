@@ -3,10 +3,16 @@
 #include <string>
 #include <sys/socket.h>
 #include <cstdio>
+#include <cstdlib>
 
 Channel::Channel(std::string channelName)
 {
 	_name = channelName;
+	_inviteOnly = false;
+	_topicRestriction = false;
+	_channelPassword = "";
+	_membersLimit = 0;
+	_membersCount = 1;
 }
 
 Channel::~Channel()
@@ -100,7 +106,7 @@ void Channel::leaveChannel(client *member)
 
 void Channel::removeOperator(client *member)
 {
-	for (std::vector<int >::iterator it = _operators.begin(); it != _operators.end(); ++it)
+	for (std::vector<int>::iterator it = _operators.begin(); it != _operators.end(); ++it)
 	{
 		if (*it == member->clientFD)
 		{
@@ -110,6 +116,143 @@ void Channel::removeOperator(client *member)
 			return;
 		}
 	}
+}
+std::string Channel::getPass()
+{
+	return _channelPassword;
+}
+
+bool Channel::checkChannelPass(int fd, std::string passwd)
+{
+	// send(fd, "ENTER CHANNEL PASSWORD:\n", 25, 0);
+	if (passwd == _channelPassword)
+	{
+		send(fd, "GOOD PASS\n", 11, 0);
+		return true;
+	}
+	else
+	{
+		send(fd, "BAD PASS\n", 10, 0);
+		return false;
+	}
+}
+
+void Channel::handlePass(int fd, std::string mode, std::string dest)
+{
+	if (mode == "-k")
+	{
+		_channelPassword = "";
+		send(fd, "PASSWORD HAS BEEN REMOVED\n", 27, 0);
+		return;
+	}
+	if (mode == "+k")
+	{
+		if (dest.size() == 0)
+		{
+			send(fd, "PLEASE ENTER PASSWORD\n", 23, 0);
+			return;
+		}
+		_channelPassword = dest;
+
+		send(fd, "PASSWORD CHANGED\n", 18, 0);
+		return;
+	}
+}
+
+void Channel::handleOperator(int fd, std::string mode, std::string dest)
+{
+	for (std::vector<int>::iterator it = _operators.begin(); it != _operators.end(); ++it)
+	{
+		if (*it == fd)
+		{
+			handleModeArg(fd, mode, dest);
+			return;
+		}
+	}
+}
+
+void Channel::handleModeArg(int fd, std::string mode, std::string dest)
+{
+	if (mode == "+i")
+	{
+		_inviteOnly = true;
+		return;
+	}
+	if (mode == "-i")
+	{
+		_inviteOnly = false;
+		return;
+	}
+	if (mode == "+t")
+	{
+		_topicRestriction = true;
+		return;
+	}
+	if (mode == "-t")
+	{
+		_topicRestriction = false;
+		return;
+	}
+	else if (mode == "+k" || mode == "-k")
+	{
+		handlePass(fd, mode, dest);
+	}
+	else if (mode == "+o" || mode == "-o")
+		handleOperator(fd, mode, dest);
+	else if (mode == "+l" || mode == "-l")
+	{
+		handleLimit(fd, mode, dest);
+	}
+}
+
+void Channel::handleLimit(int fd, std::string mode, std::string dest)
+{
+	if (mode == "+l")
+	{
+		if (_membersCount > std::atoll(dest.c_str()))
+			send(fd, "CHANNEL HAS TOO MANY MEMBERS\n", 30, 0);
+		else
+		{
+			_membersLimit = std::atoll(dest.c_str());
+			send(fd, "MEMBERS LIMIT HAS BEEN SET TO ", 31, 0);
+			send(fd, dest.c_str(), 40, 0);
+			send(fd, "\n", 2, 0);
+		}
+	}
+	if (mode == "-l")
+	{
+		_membersLimit = 0;
+	}
+}
+long long int Channel::getMembersCount()
+{
+	return _membersCount;
+}
+void Channel::addMembersCount()
+{
+	_membersCount++;
+	std::cout << "MEMBERS COUNT :" << _membersCount << std::endl;
+}
+void Channel::RemoveMembersCount()
+{
+	_membersCount--;
+}
+long long int Channel::getMembersLimit()
+{
+	return _membersLimit;
+}
+
+void Channel::checkModeOp(int fd, std::string mode, std::string dest)
+{
+	for (std::vector<int>::iterator it = _operators.begin(); it != _operators.end(); ++it)
+	{
+		if (*it == fd)
+		{
+			handleModeArg(fd, mode, dest);
+			return;
+		}
+	}
+	send(fd, "YOU ARE NOT CHANNEL OPERATOR\n", 30, 0);
 }
 
 std::string Channel::getName()
@@ -131,6 +274,15 @@ std::string Channel::getTopic()
 {
 	return _topic;
 }
+bool Channel::getInviteonly()
+{
+	return _inviteOnly;
+}
+
+bool Channel::getTopicrestriction()
+{
+	return _topicRestriction;
+}
 
 void Channel::sendToAll(client *sender, std::string msg)
 {
@@ -145,12 +297,16 @@ void Channel::sendToAll(client *sender, std::string msg)
 
 		if (_members[i] != sender->clientFD)
 		{
-
 			std::string response;
-
+			std::string username = sender->userName;
+			std::size_t usernameEnd = username.find(" ");
+			if (usernameEnd != std::string::npos)
+				username.erase(usernameEnd);
 			response = ":";
 			response += sender->nickName;
-			response += " PRIVMSG ";
+			response += "!";
+			response += username;
+			response += "@localhost PRIVMSG ";
 			response += getName();
 			response += " :";
 			response += msg;
@@ -168,4 +324,31 @@ void Channel::sendToAll(client *sender, std::string msg)
 		}
 	}
 }
-// 10.171.55.7
+void Channel::sendNoticeToAll(client *sender, std::string msg)
+{
+	std::string username = sender->userName;
+	std::size_t usernameEnd = username.find(" ");
+
+	if (usernameEnd != std::string::npos)
+		username.erase(usernameEnd);
+
+	for (unsigned long i = 0; i < _members.size(); i++)
+	{
+		if (_members[i] == sender->clientFD)
+			continue;
+
+		std::string response;
+
+		response = ":";
+		response += sender->nickName;
+		response += "!";
+		response += username;
+		response += "@localhost NOTICE ";
+		response += _name;
+		response += " :";
+		response += msg;
+		response += "\r\n";
+
+		send(_members[i], response.c_str(), response.size(), 0);
+	}
+}
