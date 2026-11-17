@@ -1,9 +1,13 @@
 #include "../includes/server.hpp"
 #include "../includes/client.hpp"
 #include "../includes/channel.hpp"
+#include <cerrno>
+#include <cstring>
+#include <stdexcept>
 
 Server::Server(const int port, const std::string passwd) : _port(port), _passwd(passwd)
 {
+	signal(SIGPIPE, SIG_IGN);
 	_serverFd = createSocket();
 	if (_serverFd == -1)
 		throw std::runtime_error("socket() failed");
@@ -13,7 +17,6 @@ Server::Server(const int port, const std::string passwd) : _port(port), _passwd(
 	setupPoll();
 	run();
 }
-
 Server::~Server()
 {
 	close(_serverFd);
@@ -25,6 +28,12 @@ int Server::createSocket()
 	fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (fd == -1)
 		return (-1);
+	int flags = fcntl(fd, F_GETFL, 0);
+	if (flags == -1 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1)
+	{
+		close(fd);
+		return (-1);
+	}
 	return (fd);
 }
 void Server::bindSocket()
@@ -49,7 +58,14 @@ int Server::clientAccept()
 	int clientFd = accept(_serverFd, NULL, NULL);
 	if (clientFd == -1)
 	{
-		std::cout << "Accept() error" << std::endl;
+		if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+			std::cout << "Accept() error" << std::endl;
+		return (-1);
+	}
+	int flags = fcntl(clientFd, F_GETFL, 0);
+	if (flags == -1 || fcntl(clientFd, F_SETFL, flags | O_NONBLOCK) == -1)
+	{
+		close(clientFd);
 		return (-1);
 	}
 	std::cout << "ACCEPTED CLIENT FD = " << clientFd << std::endl;
@@ -92,19 +108,29 @@ void Server::run()
 		{
 			std::cout << "CHECK FD " << _pollFds[i].fd
 					  << " REVENTS = " << _pollFds[i].revents << std::endl;
+			if (i != 0 && (_pollFds[i].revents & (POLLHUP | POLLERR | POLLNVAL)))
+			{
+				int fd = _pollFds[i].fd;
+				std::cout << "Client socket error or hangup!" << std::endl;
+				removeClient(fd);
+				pollFdSize--;
+				i--;
+				continue;
+			}
 			if (_pollFds[i].revents & POLLIN)
 			{
 				std::cout << "POLLIN FD = "
 						  << _pollFds[i].fd << std::endl;
 				if (i == 0)
 				{
-					client cl;
-					_clientFD = clientAccept();
-
-					if (_clientFD < 0)
-						std::cout << "Client accept Error" << std::endl;
-					else
+					while (true)
 					{
+						client cl;
+						_clientFD = clientAccept();
+
+						if (_clientFD < 0)
+							break;
+
 						cl.clientFD = _clientFD;
 						cl.buffer = "";
 						cl.auth = false;
@@ -125,7 +151,10 @@ void Server::run()
 				{
 					int bytes_read;
 					char BUFFER[1024];
-					bytes_read = recv(_pollFds[i].fd, BUFFER, sizeof(BUFFER) - 1, 0);
+					bytes_read = recv(_pollFds[i].fd, BUFFER,
+									  sizeof(BUFFER) - 1, 0);
+					if (bytes_read == -1 && errno == EINTR)
+						continue;
 					if (bytes_read > 0)
 					{
 						BUFFER[bytes_read] = '\0';
@@ -153,27 +182,25 @@ void Server::run()
 					else if (bytes_read == 0)
 					{
 						int fd = _pollFds[i].fd;
-						close(fd);
 						std::cout << "Client disconnected!" << std::endl;
-						for (unsigned long j = 0; j < _clients.size(); j++)
-						{
-							if (_clients[j].clientFD == fd)
-							{
-								_clients.erase(_clients.begin() + j);
-								break;
-							}
-						}
-						_pollFds.erase(_pollFds.begin() + i);
+						removeClient(fd);
 						pollFdSize--;
 						i--;
 					}
+					else if (bytes_read == -1 &&
+							 (errno == EAGAIN || errno == EWOULDBLOCK))
+					{
+						continue;
+					}
 					else
-						std::cout << "recv() error!" << std::endl;
+						std::cout << "recv() error: "
+								  << strerror(errno) << std::endl;
 				}
 			}
 		}
 	}
 }
+
 void Server::sendNumber(int clientFD, int code,
 						std::string nickname, std::string params, std::string text)
 {
@@ -360,7 +387,8 @@ void Server::parseCmd(std::string cmd, int clientFD)
 			else if (part1 == "QUIT")
 			{
 				handleQuit(&_clients[j], part2);
-				handleClose(&_clients[j]);
+				removeClient(clientFD);
+				return;
 			}
 			else if (part1 == "NAMES")
 			{
@@ -464,20 +492,6 @@ void Server::handleJoin(client *client, std::string channelName)
 								   " is already on channel");
 						return;
 					}
-					// std::string response;
-
-					// response = ":";
-					// response += client->nickName;
-					// response += "!";
-					// response += client->nickName;
-					// response += "@localhost JOIN :";
-					// response += channelName;
-					// response += "\r\n";
-					// sendMsg(client->clientFD, response);
-					// sendNumber(client->clientFD, 353,
-					// 		   client->nickName, "= " + channelName, "@" + client->nickName);
-					// sendNumber(client->clientFD, 366,
-					// 		   client->nickName, channelName, "End of /NAMES list");
 					it->addMember(client->clientFD);
 					it->addMembersCount();
 					std::string response;
@@ -517,6 +531,24 @@ void Server::handleJoin(client *client, std::string channelName)
 		}
 		else if (it->getName() == channelName && it->getInviteonly() == true)
 		{
+			if (it->isInvited(client->clientFD) == true)
+			{
+				it->addMember(client->clientFD);
+				it->addMembersCount();
+				std::string response;
+				response = ":";
+				response += client->nickName;
+				response += "!";
+				response += client->nickName;
+				response += "@localhost JOIN :";
+				response += channelName;
+				response += "\r\n";
+				std::vector<int> members = it->getMembers();
+				for (unsigned long k = 0; k < members.size(); k++)
+					sendMsg(members[k], response);
+				it->removeInvitation(client->clientFD);
+				return ;
+			}
 			sendNumber(client->clientFD, 473, client->nickName,
 					   channelName, "Cannot join channel (+i)");
 			return;
@@ -816,8 +848,9 @@ void Server::handleInvite(client *client, std::string argument)
 									   "Cannot invite user");
 							return;
 						}
-						_Channels[i].addMember(_clients[j].clientFD);
-						_Channels[i].addMembersCount();
+						//_Channels[i].addMember(_clients[j].clientFD);
+						//_Channels[i].addMembersCount();
+						_Channels[i].addInvitation(_clients[j].clientFD);
 						std::string response = ":";
 						response += client->nickName;
 						response += "!";
@@ -961,8 +994,8 @@ void Server::handleMode(client *client, std::string argument)
 		if (targetFd == -1)
 		{
 			sendNumber(client->clientFD, 401, client->nickName,
-				dest, "No such nick");
-			return ;
+					   dest, "No such nick");
+			return;
 		}
 	}
 
@@ -1049,5 +1082,55 @@ void Server::handleQuit(client *client, std::string argument)
 			}
 		}
 		i++;
+	}
+}
+
+void Server::removeClient(int fd)
+{
+	client *clientToRemove = NULL;
+	for (std::vector<client>::iterator it = _clients.begin();
+		 it != _clients.end(); ++it)
+	{
+		if (it->clientFD == fd)
+		{
+			clientToRemove = &(*it);
+			break;
+		}
+	}
+	if (clientToRemove == NULL)
+		return;
+
+	for (std::vector<Channel>::iterator it = _Channels.begin();
+		 it != _Channels.end();)
+	{
+		if (it->isMember(fd))
+		{
+			it->leaveChannel(clientToRemove);
+			it->RemoveMembersCount();
+		}
+		if (!it->hasMember())
+			it = _Channels.erase(it);
+		else
+			++it;
+	}
+
+	close(fd);
+	for (std::vector<struct pollfd>::iterator it = _pollFds.begin();
+		 it != _pollFds.end(); ++it)
+	{
+		if (it->fd == fd)
+		{
+			_pollFds.erase(it);
+			break;
+		}
+	}
+	for (std::vector<client>::iterator it = _clients.begin();
+		 it != _clients.end(); ++it)
+	{
+		if (it->clientFD == fd)
+		{
+			_clients.erase(it);
+			break;
+		}
 	}
 }

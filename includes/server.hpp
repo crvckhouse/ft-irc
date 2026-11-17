@@ -10,6 +10,8 @@
 #include <csignal> //-> for signal()
 #include <string>
 #include <sstream>
+#include <cerrno>
+#include <stdexcept>
 //-------------------------------------------------------//
 #define RESET   "\033[0m"
 #define ROUGE   "\033[31m"
@@ -53,6 +55,7 @@ private:
 	void handleNames(client *client, std::string argument);
 	void tryRegister(client *client);
 	void handleClose(client *client);
+	void removeClient(int fd);
 public:
 	Server(const int port, const std::string passwd);
 	~Server();
