@@ -105,13 +105,20 @@ void Channel::addMember(int fd)
 
 void Channel::addOperator(int fd)
 {
+	for (std::vector<int>::iterator it = _operators.begin(); it != _operators.end(); ++it)
+	{
+		if (*it == fd)
+		{
+			return;
+		}
+	}
 	_operators.push_back(fd);
 	// std::cout << "OPERATOR ADDED" << std::endl;
 }
 
 void Channel::leaveChannel(client *member)
 {
-	removeOperator(member);
+	removeOperator(member->clientFD);
 	for (std::vector<int>::iterator it = _members.begin(); it != _members.end(); ++it)
 	{
 		if (*it == member->clientFD)
@@ -124,11 +131,11 @@ void Channel::leaveChannel(client *member)
 	}
 }
 
-void Channel::removeOperator(client *member)
+void Channel::removeOperator(int fd)
 {
 	for (std::vector<int>::iterator it = _operators.begin(); it != _operators.end(); ++it)
 	{
-		if (*it == member->clientFD)
+		if (*it == fd)
 		{
 			// std::cout << "DELETE OPERATOR" << std::endl;
 			_operators.erase(it);
@@ -168,19 +175,23 @@ void Channel::handlePass(int fd, std::string mode, std::string dest)
 	}
 }
 
-void Channel::handleOperator(int fd, std::string mode, std::string dest)
+void Channel::handleOperator(int fd, std::string mode, int targetFd)
 {
 	for (std::vector<int>::iterator it = _operators.begin(); it != _operators.end(); ++it)
 	{
 		if (*it == fd)
 		{
-			handleModeArg(fd, mode, dest);
+			if (mode == "+o")
+				addOperator(targetFd);
+			else if (mode == "-o")
+				removeOperator(targetFd);
 			return;
 		}
 	}
 }
 
-void Channel::handleModeArg(int fd, std::string mode, std::string dest)
+
+void Channel::handleModeArg(int fd, std::string mode, std::string dest, int targetFd)
 {
 	if (mode == "+i")
 	{
@@ -207,7 +218,7 @@ void Channel::handleModeArg(int fd, std::string mode, std::string dest)
 		handlePass(fd, mode, dest);
 	}
 	else if (mode == "+o" || mode == "-o")
-		handleOperator(fd, mode, dest);
+		handleOperator(fd, mode, targetFd);
 	else if (mode == "+l" || mode == "-l")
 	{
 		handleLimit(fd, mode, dest);
@@ -247,13 +258,13 @@ long long int Channel::getMembersLimit()
 	return _membersLimit;
 }
 
-void Channel::checkModeOp(int fd, std::string mode, std::string dest)
+void Channel::checkModeOp(int fd, std::string mode, std::string dest, int targetFd)
 {
 	for (std::vector<int>::iterator it = _operators.begin(); it != _operators.end(); ++it)
 	{
 		if (*it == fd)
 		{
-			handleModeArg(fd, mode, dest);
+			handleModeArg(fd, mode, dest, targetFd);
 			return;
 		}
 	}
@@ -356,5 +367,37 @@ void Channel::sendNoticeToAll(client *sender, std::string msg)
 		response += "\r\n";
 
 		send(_members[i], response.c_str(), response.size(), 0);
+	}
+}
+
+void Channel::addInvitation(int fd)
+{
+	for (std::vector<int>::iterator it = _invited.begin(); it != _invited.end(); ++it) 
+	{
+		if (*it == fd)
+			return;
+	}
+	_invited.push_back(fd);
+}
+
+bool Channel::isInvited(int fd)
+{
+	for (std::vector<int>::iterator it = _invited.begin(); it != _invited.end(); ++it) 
+	{
+		if (*it == fd)
+			return true;
+	}
+	return false;
+}
+
+void Channel::removeInvitation(int fd)
+{
+	for (std::vector<int>::iterator it = _invited.begin(); it != _invited.end(); ++it) 
+	{
+		if (*it == fd)
+		{
+			_invited.erase(it);
+			return;
+		}
 	}
 }

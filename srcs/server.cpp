@@ -391,37 +391,37 @@ void Server::handleNames(client *client, std::string channelName)
 	if (channelName.empty())
 	{
 		sendNumber(client->clientFD, 366,
-                   client->nickName, "*", "End of /NAMES list");
-        return;
+				   client->nickName, "*", "End of /NAMES list");
+		return;
 	}
 	for (unsigned long i = 0; i < _Channels.size(); i++)
-    {
-        if (_Channels[i].getName() != channelName)
-            continue;
-        std::vector<int> members = _Channels[i].getMembers();
-        std::string names;
-        for (unsigned long j = 0; j < members.size(); j++)
-        {
-            for (unsigned long k = 0; k < _clients.size(); k++)
-            {
-                if (_clients[k].clientFD != members[j])
-                    continue;
-                if (!names.empty())
-                    names += " ";
-                if (_Channels[i].isOperator(members[j]))
-                    names += "@";
-                names += _clients[k].nickName;
-                break;
-            }
-        }
-        sendNumber(client->clientFD, 353,
-                   client->nickName, "= " + channelName, names);
-        sendNumber(client->clientFD, 366,
-                   client->nickName, channelName, "End of /NAMES list");
-        return;
-    }
-    sendNumber(client->clientFD, 403,
-               client->nickName, channelName, "No such channel");
+	{
+		if (_Channels[i].getName() != channelName)
+			continue;
+		std::vector<int> members = _Channels[i].getMembers();
+		std::string names;
+		for (unsigned long j = 0; j < members.size(); j++)
+		{
+			for (unsigned long k = 0; k < _clients.size(); k++)
+			{
+				if (_clients[k].clientFD != members[j])
+					continue;
+				if (!names.empty())
+					names += " ";
+				if (_Channels[i].isOperator(members[j]))
+					names += "@";
+				names += _clients[k].nickName;
+				break;
+			}
+		}
+		sendNumber(client->clientFD, 353,
+				   client->nickName, "= " + channelName, names);
+		sendNumber(client->clientFD, 366,
+				   client->nickName, channelName, "End of /NAMES list");
+		return;
+	}
+	sendNumber(client->clientFD, 403,
+			   client->nickName, channelName, "No such channel");
 }
 
 void Server::handleJoin(client *client, std::string channelName)
@@ -941,11 +941,36 @@ void Server::handleMode(client *client, std::string argument)
 		dest = argument.substr(pos);
 	}
 
+	int targetFd = -1;
+	if (mode == "+o" || mode == "-o")
+	{
+		if (dest.empty())
+		{
+			sendNumber(client->clientFD, 461, client->nickName,
+					   "MODE", "Not enough parameters");
+			return;
+		}
+		for (unsigned long j = 0; j < _clients.size(); j++)
+		{
+			if (_clients[j].nickName == dest)
+			{
+				targetFd = _clients[j].clientFD;
+				break;
+			}
+		}
+		if (targetFd == -1)
+		{
+			sendNumber(client->clientFD, 401, client->nickName,
+				dest, "No such nick");
+			return ;
+		}
+	}
+
 	for (unsigned long i = 0; i < _Channels.size(); i++)
 	{
 		if (_Channels[i].getName() == channel)
 		{
-			_Channels[i].checkModeOp(client->clientFD, mode, dest);
+			_Channels[i].checkModeOp(client->clientFD, mode, dest, targetFd);
 			return;
 		}
 		else
