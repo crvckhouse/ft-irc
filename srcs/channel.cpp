@@ -4,6 +4,26 @@
 #include <sys/socket.h>
 #include <cstdio>
 #include <cstdlib>
+#include <sstream>
+
+static void sendChannelNumeric(int fd, int code, const std::string &params,
+							   const std::string &text)
+{
+	std::ostringstream response;
+	response << ":ft_irc ";
+	if (code < 100)
+		response << "0";
+	if (code < 10)
+		response << "0";
+	response << code << " *";
+	if (!params.empty())
+		response << " " << params;
+	if (!text.empty())
+		response << " :" << text;
+	response << "\r\n";
+	std::string message = response.str();
+	send(fd, message.c_str(), message.size(), 0);
+}
 
 Channel::Channel(std::string channelName)
 {
@@ -124,17 +144,8 @@ std::string Channel::getPass()
 
 bool Channel::checkChannelPass(int fd, std::string passwd)
 {
-	// send(fd, "ENTER CHANNEL PASSWORD:\n", 25, 0);
-	if (passwd == _channelPassword)
-	{
-		send(fd, "GOOD PASS\n", 11, 0);
-		return true;
-	}
-	else
-	{
-		send(fd, "BAD PASS\n", 10, 0);
-		return false;
-	}
+	(void)fd;
+	return passwd == _channelPassword;
 }
 
 void Channel::handlePass(int fd, std::string mode, std::string dest)
@@ -142,19 +153,17 @@ void Channel::handlePass(int fd, std::string mode, std::string dest)
 	if (mode == "-k")
 	{
 		_channelPassword = "";
-		send(fd, "PASSWORD HAS BEEN REMOVED\n", 27, 0);
 		return;
 	}
 	if (mode == "+k")
 	{
 		if (dest.size() == 0)
 		{
-			send(fd, "PLEASE ENTER PASSWORD\n", 23, 0);
+			sendChannelNumeric(fd, 461, _name,
+							   "Not enough parameters");
 			return;
 		}
 		_channelPassword = dest;
-
-		send(fd, "PASSWORD CHANGED\n", 18, 0);
 		return;
 	}
 }
@@ -210,14 +219,10 @@ void Channel::handleLimit(int fd, std::string mode, std::string dest)
 	if (mode == "+l")
 	{
 		if (_membersCount > std::atoll(dest.c_str()))
-			send(fd, "CHANNEL HAS TOO MANY MEMBERS\n", 30, 0);
+			sendChannelNumeric(fd, 461, _name,
+							   "Invalid channel limit");
 		else
-		{
 			_membersLimit = std::atoll(dest.c_str());
-			send(fd, "MEMBERS LIMIT HAS BEEN SET TO ", 31, 0);
-			send(fd, dest.c_str(), 40, 0);
-			send(fd, "\n", 2, 0);
-		}
 	}
 	if (mode == "-l")
 	{
@@ -252,7 +257,8 @@ void Channel::checkModeOp(int fd, std::string mode, std::string dest)
 			return;
 		}
 	}
-	send(fd, "YOU ARE NOT CHANNEL OPERATOR\n", 30, 0);
+	sendChannelNumeric(fd, 482, _name,
+					   "You're not channel operator");
 }
 
 std::string Channel::getName()

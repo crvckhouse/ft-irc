@@ -50,6 +50,7 @@ private:
 	void handleMode(client *client, std::string argument);
 	void handleNotice(client *client, std::string argument);
 	void handleQuit(client *client, std::string argument);	
+	void handleNames(client *client, std::string argument);
 	void tryRegister(client *client);
 	void handleClose(client *client);
 public:

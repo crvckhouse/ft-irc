@@ -362,6 +362,15 @@ void Server::parseCmd(std::string cmd, int clientFD)
 				handleQuit(&_clients[j], part2);
 				handleClose(&_clients[j]);
 			}
+			else if (part1 == "NAMES")
+			{
+				handleNames(&_clients[j], part2);
+			}
+			else
+			{
+				sendNumber(clientFD, 421, _clients[j].nickName, part1,
+						   "Unknown command");
+			}
 			return;
 		}
 	}
@@ -375,6 +384,44 @@ void Server::handleClose(client *client)
 {
 	client->buffer.clear();
 	shutdown(client->clientFD, SHUT_RDWR);
+}
+
+void Server::handleNames(client *client, std::string channelName)
+{
+	if (channelName.empty())
+	{
+		sendNumber(client->clientFD, 366,
+                   client->nickName, "*", "End of /NAMES list");
+        return;
+	}
+	for (unsigned long i = 0; i < _Channels.size(); i++)
+    {
+        if (_Channels[i].getName() != channelName)
+            continue;
+        std::vector<int> members = _Channels[i].getMembers();
+        std::string names;
+        for (unsigned long j = 0; j < members.size(); j++)
+        {
+            for (unsigned long k = 0; k < _clients.size(); k++)
+            {
+                if (_clients[k].clientFD != members[j])
+                    continue;
+                if (!names.empty())
+                    names += " ";
+                if (_Channels[i].isOperator(members[j]))
+                    names += "@";
+                names += _clients[k].nickName;
+                break;
+            }
+        }
+        sendNumber(client->clientFD, 353,
+                   client->nickName, "= " + channelName, names);
+        sendNumber(client->clientFD, 366,
+                   client->nickName, channelName, "End of /NAMES list");
+        return;
+    }
+    sendNumber(client->clientFD, 403,
+               client->nickName, channelName, "No such channel");
 }
 
 void Server::handleJoin(client *client, std::string channelName)
@@ -397,13 +444,16 @@ void Server::handleJoin(client *client, std::string channelName)
 		{
 			if (it->getPass() != "" && (it->checkChannelPass(client->clientFD, password) == false))
 			{
+				sendNumber(client->clientFD, 475, client->nickName,
+						   channelName, "Cannot join channel (+k)");
 				return;
 			}
 			else
 			{
 				if (it->getMembersCount() == it->getMembersLimit())
 				{
-					send(client->clientFD, "CHANNEL FULL\n", 14, 0);
+					sendNumber(client->clientFD, 471, client->nickName,
+							   channelName, "Cannot join channel (+l)");
 				}
 				else
 				{
@@ -467,7 +517,8 @@ void Server::handleJoin(client *client, std::string channelName)
 		}
 		else if (it->getName() == channelName && it->getInviteonly() == true)
 		{
-			send(client->clientFD, "YOU NEED TO BE INVITED TO JOIN THIS CHANNEL\n", 45, 0);
+			sendNumber(client->clientFD, 473, client->nickName,
+					   channelName, "Cannot join channel (+i)");
 			return;
 		}
 	}
@@ -655,7 +706,7 @@ void Server::handlePrivmsg(client *sender, std::string argument)
 			std::string response = ":";
 			response += sender->nickName;
 			response += "!";
-			response += sender->nickName;
+			response += username;
 			response += "@localhost PRIVMSG ";
 			response += dest;
 			response += " :";
@@ -671,14 +722,16 @@ void Server::handlePrivmsg(client *sender, std::string argument)
 		{
 			if (!(_Channels[i].isMember(sender->clientFD)))
 			{
-				send(sender->clientFD, "YOU ARE NOT IN THIS CHANNEL", 28, 0);
+				sendNumber(sender->clientFD, 442, sender->nickName,
+						   dest, "You're not on that channel");
 				return;
 			}
 			_Channels[i].sendToAll(sender, msg);
 			return;
 		}
 	}
-	send(sender->clientFD, "THIS CHANNEL OR USER DOESNT EXIST", 34, 0);
+	sendNumber(sender->clientFD, 401, sender->nickName, dest,
+			   "No such nick/channel");
 }
 
 void Server::handleKick(client *client, std::string argument)
@@ -707,8 +760,20 @@ void Server::handleKick(client *client, std::string argument)
 							if (_clients[j].clientFD == members[k])
 							{
 								_Channels[i].leaveChannel(&_clients[j]);
-								send(_clients[j].clientFD, "TU T FAIT BAN", 14, 0);
-								send(client->clientFD, "LA PERSONNE A ETE BAN", 22, 0);
+								std::string response = ":";
+								response += client->nickName;
+								response += "!";
+								response += client->nickName;
+								response += "@localhost KICK ";
+								response += channel;
+								response += " ";
+								response += member;
+								response += " :Kicked\r\n";
+								std::vector<int> channelMembers =
+									_Channels[i].getMembers();
+								for (unsigned long l = 0;
+									 l < channelMembers.size(); l++)
+									sendMsg(channelMembers[l], response);
 								_Channels[i].RemoveMembersCount();
 								return;
 							}
@@ -717,7 +782,8 @@ void Server::handleKick(client *client, std::string argument)
 				}
 				return;
 			}
-			send(client->clientFD, "YOU ARE NOT CHANNEL OPERATOR", 29, 0);
+			sendNumber(client->clientFD, 482, client->nickName,
+					   channel, "You're not channel operator");
 		}
 	}
 }
@@ -745,12 +811,23 @@ void Server::handleInvite(client *client, std::string argument)
 
 						if (_Channels[i].getMembersCount() == _Channels[i].getMembersLimit())
 						{
-							send(client->clientFD, "CHANNEL FULL, CANT INVITE\n", 28, 0);
+							sendNumber(client->clientFD, 471,
+									   client->nickName, channel,
+									   "Cannot invite user");
 							return;
 						}
 						_Channels[i].addMember(_clients[j].clientFD);
 						_Channels[i].addMembersCount();
-						send(_clients[j].clientFD, "YOU ARE INVITED TO A NEW CHANNEL", 33, 0);
+						std::string response = ":";
+						response += client->nickName;
+						response += "!";
+						response += client->nickName;
+						response += "@localhost INVITE ";
+						response += invited;
+						response += " ";
+						response += channel;
+						response += "\r\n";
+						sendMsg(_clients[j].clientFD, response);
 						return;
 					}
 				}
@@ -788,10 +865,8 @@ void Server::handleTopic(client *client, std::string argument)
 			{
 				if (topic.empty())
 				{
-					send(client->clientFD, "TOPIC: ", 7, 0);
-					std::string topicName;
-					topicName += _Channels[i].getTopic();
-					send(client->clientFD, topicName.c_str(), topicName.size(), 0);
+					sendNumber(client->clientFD, 332, client->nickName,
+							   channel, _Channels[i].getTopic());
 				}
 				else
 				{
@@ -800,19 +875,33 @@ void Server::handleTopic(client *client, std::string argument)
 						 _Channels[i].isOperator(client->clientFD) == true))
 					{
 						_Channels[i].newTopic(topic);
-						send(client->clientFD, "TOPIC IS NOW :", 14, 0);
-						send(client->clientFD, _Channels[i].getTopic().c_str(), (_Channels[i].getTopic()).size(), 0);
+						std::string response = ":";
+						response += client->nickName;
+						response += "!";
+						response += client->nickName;
+						response += "@localhost TOPIC ";
+						response += channel;
+						response += " :";
+						response += topic;
+						response += "\r\n";
+						std::vector<int> members =
+							_Channels[i].getMembers();
+						for (unsigned long j = 0; j < members.size(); j++)
+							sendMsg(members[j], response);
 					}
 					else
-						send(client->clientFD, "TOPIC CREATION FOR OPERATORS ONLY\n", 35, 0);
+						sendNumber(client->clientFD, 482, client->nickName,
+								   channel, "You're not channel operator");
 				}
 			}
 			else
-				send(client->clientFD, "YOU MUST BE CHANNEL MEMBER TO CREATE TOPIC\n", 44, 0);
+				sendNumber(client->clientFD, 442, client->nickName,
+						   channel, "You're not on that channel");
 			return;
 		}
 	}
-	send(client->clientFD, "PLEASE ENTER CORRECT CHANNEL NAME\n", 35, 0);
+	sendNumber(client->clientFD, 403, client->nickName, channel,
+			   "No such channel");
 }
 
 void Server::handleMode(client *client, std::string argument)
@@ -826,7 +915,8 @@ void Server::handleMode(client *client, std::string argument)
 	pos = argument.find(" ");
 	if (pos == std::string::npos)
 	{
-		send(client->clientFD, "MODE NEED ARGUMENT\n", 20, 0);
+		sendNumber(client->clientFD, 461, client->nickName, "MODE",
+				   "Not enough parameters");
 		return;
 	}
 	channel = argument.substr(0, pos);
@@ -860,7 +950,8 @@ void Server::handleMode(client *client, std::string argument)
 		}
 		else
 		{
-			send(client->clientFD, "ENTER CORRECT CHANNEL\n", 23, 0);
+			sendNumber(client->clientFD, 403, client->nickName,
+					   channel, "No such channel");
 		}
 	}
 }
