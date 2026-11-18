@@ -8,6 +8,7 @@ struct client
 	bool user;
 	bool registered;
 	std::string buffer;
+	std::string outputBuffer;
 	std::string userName;
 	std::string nickName;
 };

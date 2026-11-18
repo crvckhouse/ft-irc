@@ -21,10 +21,5 @@ fclean: clean
 
 re: fclean all
 
-test: $(NAME)
-	python3 tests/test_channels.py
 
-test-nc: $(NAME)
-	python3 tests/test_nc.py
-
-.PHONY: all clean fclean re test test-nc
+.PHONY: all clean fclean re

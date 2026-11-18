@@ -1,13 +1,16 @@
 #include "../includes/channel.hpp"
+#include "../includes/server.hpp"
 #include <iostream>
 #include <string>
-#include <sys/socket.h>
 #include <cstdio>
 #include <cstdlib>
+#include <cctype>
+#include <cerrno>
+#include <cstring>
 #include <sstream>
 
-static void sendChannelNumeric(int fd, int code, const std::string &params,
-							   const std::string &text)
+void Channel::sendNumeric(int fd, int code, const std::string &params,
+						  const std::string &text)
 {
 	std::ostringstream response;
 	response << ":ft_irc ";
@@ -21,12 +24,12 @@ static void sendChannelNumeric(int fd, int code, const std::string &params,
 	if (!text.empty())
 		response << " :" << text;
 	response << "\r\n";
-	std::string message = response.str();
-	send(fd, message.c_str(), message.size(), 0);
+	_server->sendMsg(fd, response.str());
 }
 
-Channel::Channel(std::string channelName)
+Channel::Channel(std::string channelName, Server *server)
 {
+	_server = server;
 	_name = channelName;
 	_inviteOnly = false;
 	_topicRestriction = false;
@@ -166,8 +169,7 @@ void Channel::handlePass(int fd, std::string mode, std::string dest)
 	{
 		if (dest.size() == 0)
 		{
-			sendChannelNumeric(fd, 461, _name,
-							   "Not enough parameters");
+			sendNumeric(fd, 461, _name, "Not enough parameters");
 			return;
 		}
 		_channelPassword = dest;
@@ -225,15 +227,56 @@ void Channel::handleModeArg(int fd, std::string mode, std::string dest, int targ
 	}
 }
 
+void Channel::sendModeMessage(int fd, const std::string &mode,
+							  const std::string &dest)
+{
+	std::string nickname;
+	for (std::vector<client>::iterator it = _server->_clients.begin();
+		 it != _server->_clients.end(); ++it)
+	{
+		if (it->clientFD == fd)
+		{
+			nickname = it->nickName;
+			break;
+		}
+	}
+	if (nickname.empty())
+		return;
+
+	std::string message = ":";
+	message += nickname + "!" + nickname + "@localhost MODE ";
+	message += _name + " " + mode;
+	if (!dest.empty())
+		message += " " + dest;
+	message += "\r\n";
+
+	for (std::vector<int>::iterator it = _members.begin();
+		 it != _members.end(); ++it)
+		_server->sendMsg(*it, message);
+}
+
 void Channel::handleLimit(int fd, std::string mode, std::string dest)
 {
 	if (mode == "+l")
 	{
-		if (_membersCount > std::atoll(dest.c_str()))
-			sendChannelNumeric(fd, 461, _name,
-							   "Invalid channel limit");
+		if (dest.empty())
+		{
+			sendNumeric(fd, 461, _name, "Not enough parameters");
+			return;
+		}
+		for (std::size_t i = 0; i < dest.size(); i++)
+		{
+			if (!std::isdigit(static_cast<unsigned char>(dest[i])))
+			{
+				sendNumeric(fd, 461, _name, "Invalid channel limit");
+				return;
+			}
+		}
+		long long int limit = std::atoll(dest.c_str());
+		if (limit <= 0 || _membersCount > limit)
+			sendNumeric(fd, 461, _name, "Invalid channel limit");
 		else
-			_membersLimit = std::atoll(dest.c_str());
+			_membersLimit = limit;
 	}
 	if (mode == "-l")
 	{
@@ -264,12 +307,24 @@ void Channel::checkModeOp(int fd, std::string mode, std::string dest, int target
 	{
 		if (*it == fd)
 		{
+			bool oldInviteOnly = _inviteOnly;
+			bool oldTopicRestriction = _topicRestriction;
+			std::string oldPassword = _channelPassword;
+			long long int oldLimit = _membersLimit;
+			bool oldTargetOperator = isOperator(targetFd);
 			handleModeArg(fd, mode, dest, targetFd);
+			bool changed = oldInviteOnly != _inviteOnly ||
+				oldTopicRestriction != _topicRestriction ||
+				oldPassword != _channelPassword ||
+				oldLimit != _membersLimit ||
+				oldTargetOperator != isOperator(targetFd);
+			if (changed)
+				sendModeMessage(fd, mode, dest);
 			return;
 		}
 	}
-	sendChannelNumeric(fd, 482, _name,
-					   "You're not channel operator");
+	sendNumeric(fd, 482, _name,
+				"You're not channel operator");
 }
 
 std::string Channel::getName()
@@ -332,12 +387,7 @@ void Channel::sendToAll(client *sender, std::string msg)
 			std::cout << "SENDING TO FD " << _members[i] << std::endl;
 			std::cout << "RESPONSE = [" << response << "]" << std::endl;
 
-			int ret = send(_members[i], response.c_str(), response.size(), 0);
-
-			std::cout << "SEND RETURN = " << ret << std::endl;
-
-			if (ret == -1)
-				perror("send");
+			_server->sendMsg(_members[i], response);
 		}
 	}
 }
@@ -366,7 +416,7 @@ void Channel::sendNoticeToAll(client *sender, std::string msg)
 		response += msg;
 		response += "\r\n";
 
-		send(_members[i], response.c_str(), response.size(), 0);
+		_server->sendMsg(_members[i], response);
 	}
 }
 

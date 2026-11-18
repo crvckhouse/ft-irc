@@ -117,6 +117,48 @@ void Server::run()
 				i--;
 				continue;
 			}
+			if (_pollFds[i].revents & POLLOUT)
+			{
+				int fd = _pollFds[i].fd;
+				client *recipient = findClient(fd);
+				if (recipient != NULL && !recipient->outputBuffer.empty())
+				{
+					ssize_t bytesSent = send(fd,
+											 recipient->outputBuffer.c_str(),
+											 recipient->outputBuffer.size(), MSG_NOSIGNAL);
+					if (bytesSent > 0)
+					{
+						recipient->outputBuffer.erase(0, bytesSent);
+						if (recipient->outputBuffer.empty())
+						{
+							disablePollout(fd);
+						}
+					}
+					else if (bytesSent == -1 &&
+							 errno != EINTR &&
+							 errno != EAGAIN &&
+							 errno != EWOULDBLOCK)
+					{
+						std::cout << "send() error on fd " << fd
+								  << ": " << strerror(errno) << std::endl;
+						removeClient(fd);
+						pollFdSize--;
+						i--;
+						continue;
+					}
+					else if (bytesSent == 0)
+					{
+						std::cout << "Client closed connection on fd "
+								  << fd << std::endl;
+						removeClient(fd);
+						pollFdSize--;
+						i--;
+						continue;
+					}
+				}
+				else if (recipient != NULL)
+					disablePollout(fd);
+			}
 			if (_pollFds[i].revents & POLLIN)
 			{
 				std::cout << "POLLIN FD = "
@@ -133,6 +175,7 @@ void Server::run()
 
 						cl.clientFD = _clientFD;
 						cl.buffer = "";
+						cl.outputBuffer = "";
 						cl.auth = false;
 						cl.nick = false;
 						cl.user = false;
@@ -157,10 +200,11 @@ void Server::run()
 						continue;
 					if (bytes_read > 0)
 					{
+						int fd = _pollFds[i].fd;
 						BUFFER[bytes_read] = '\0';
 						for (unsigned long j = 0; j < _clients.size(); j++)
 						{
-							if (_pollFds[i].fd == _clients[j].clientFD)
+							if (fd == _clients[j].clientFD)
 							{
 								_clients[j].buffer += BUFFER;
 								std::size_t pos = _clients[j].buffer.find("\r\n", 0);
@@ -172,9 +216,18 @@ void Server::run()
 									_clients[j].buffer.erase(0, pos + 2);
 									pos = _clients[j].buffer.find("\r\n");
 									std::cout << "COMMAND RECEIVED: [" << cmd << "]" << std::endl;
-									parseCmd(cmd, _clients[j].clientFD);
+									int currentFd = _clients[j].clientFD;
+									parseCmd(cmd, currentFd);
+									if (findClient(currentFd) == NULL)
+										break;
 								}
 							}
+						}
+						if (findClient(fd) == NULL)
+						{
+							pollFdSize--;
+							i--;
+							continue;
 						}
 						// std::cout << "Data received by client!: " << _pollFds[i].fd << " --->" << BUFFER << std::endl;
 						// send(_pollFds[i].fd, BUFFER, bytes_read, 0);
@@ -193,8 +246,14 @@ void Server::run()
 						continue;
 					}
 					else
+					{
+						int fd = _pollFds[i].fd;
 						std::cout << "recv() error: "
 								  << strerror(errno) << std::endl;
+						removeClient(fd);
+						pollFdSize--;
+						i--;
+					}
 				}
 			}
 		}
@@ -386,7 +445,6 @@ void Server::parseCmd(std::string cmd, int clientFD)
 			}
 			else if (part1 == "QUIT")
 			{
-				handleQuit(&_clients[j], part2);
 				removeClient(clientFD);
 				return;
 			}
@@ -403,9 +461,88 @@ void Server::parseCmd(std::string cmd, int clientFD)
 		}
 	}
 }
+client *Server::findClient(int fd)
+{
+	for (std::vector<client>::iterator it = _clients.begin();
+		 it != _clients.end(); ++it)
+	{
+		if (it->clientFD == fd)
+			return &(*it);
+	}
+	return NULL;
+}
+
 void Server::sendMsg(int clientFD, std::string msg)
 {
-	send(clientFD, msg.c_str(), msg.size(), 0);
+	client *recipient = findClient(clientFD);
+	if (recipient == NULL)
+		return;
+	if (!recipient->outputBuffer.empty())
+	{
+		recipient->outputBuffer += msg;
+		enablePollout(clientFD);
+		return;
+	}
+
+	ssize_t bytesSent = send(clientFD, msg.c_str(), msg.size(), MSG_NOSIGNAL);
+	if (bytesSent == static_cast<ssize_t>(msg.size()))
+		return;
+	if (bytesSent == -1)
+	{
+		if (errno == EINTR)
+		{
+			recipient->outputBuffer += msg;
+			enablePollout(clientFD);
+			return;
+		}
+		if (errno == EAGAIN || errno == EWOULDBLOCK)
+		{
+			recipient->outputBuffer += msg;
+			enablePollout(clientFD);
+			return;
+		}
+		if (errno == EPIPE || errno == ECONNRESET)
+		{
+			std::cout << "Client connection closed while sending" << std::endl;
+			return;
+		}
+		std::cout << "send() error: " << strerror(errno) << std::endl;
+		return;
+	}
+	if (bytesSent > 0 &&
+		bytesSent < static_cast<ssize_t>(msg.size()))
+	{
+		recipient->outputBuffer += msg.substr(bytesSent);
+		enablePollout(clientFD);
+		std::cout << "Partial send: " << bytesSent << " of "
+				  << msg.size() << " bytes" << std::endl;
+	}
+}
+
+void Server::enablePollout(int fd)
+{
+	for (std::vector<struct pollfd>::iterator it = _pollFds.begin();
+		 it != _pollFds.end(); ++it)
+	{
+		if (it->fd == fd)
+		{
+			it->events |= POLLOUT;
+			return;
+		}
+	}
+}
+
+void Server::disablePollout(int fd)
+{
+	for (std::vector<struct pollfd>::iterator it = _pollFds.begin();
+		 it != _pollFds.end(); ++it)
+	{
+		if (it->fd == fd)
+		{
+			it->events &= ~POLLOUT;
+			return;
+		}
+	}
 }
 
 void Server::handleClose(client *client)
@@ -478,10 +615,12 @@ void Server::handleJoin(client *client, std::string channelName)
 			}
 			else
 			{
-				if (it->getMembersCount() == it->getMembersLimit())
+				if (it->getMembersLimit() > 0 &&
+					it->getMembersCount() >= it->getMembersLimit())
 				{
 					sendNumber(client->clientFD, 471, client->nickName,
 							   channelName, "Cannot join channel (+l)");
+					return;
 				}
 				else
 				{
@@ -531,31 +670,51 @@ void Server::handleJoin(client *client, std::string channelName)
 		}
 		else if (it->getName() == channelName && it->getInviteonly() == true)
 		{
-			if (it->isInvited(client->clientFD) == true)
+			if (it->isInvited(client->clientFD) == false)
 			{
-				it->addMember(client->clientFD);
-				it->addMembersCount();
-				std::string response;
-				response = ":";
-				response += client->nickName;
-				response += "!";
-				response += client->nickName;
-				response += "@localhost JOIN :";
-				response += channelName;
-				response += "\r\n";
-				std::vector<int> members = it->getMembers();
-				for (unsigned long k = 0; k < members.size(); k++)
-					sendMsg(members[k], response);
-				it->removeInvitation(client->clientFD);
-				return ;
+				sendNumber(client->clientFD, 473, client->nickName,
+						   channelName, "Cannot join channel (+i)");
+				return;
 			}
-			sendNumber(client->clientFD, 473, client->nickName,
-					   channelName, "Cannot join channel (+i)");
+			if (it->getPass() != "" && (it->checkChannelPass(client->clientFD, password) == false))
+			{
+				sendNumber(client->clientFD, 475, client->nickName,
+						   channelName, "Cannot join channel (+k)");
+				return;
+			}
+			if (it->getMembersLimit() > 0 &&
+				it->getMembersCount() >= it->getMembersLimit())
+			{
+				sendNumber(client->clientFD, 471, client->nickName,
+						   channelName, "Cannot join channel (+l)");
+				return;
+			}
+			if (it->isMember(client->clientFD))
+			{
+				sendNumber(client->clientFD, 443, client->nickName,
+						   client->nickName + " " + channelName,
+						   " is already on channel");
+				return;
+			}
+			it->addMember(client->clientFD);
+			it->addMembersCount();
+			std::string response;
+			response = ":";
+			response += client->nickName;
+			response += "!";
+			response += client->nickName;
+			response += "@localhost JOIN :";
+			response += channelName;
+			response += "\r\n";
+			std::vector<int> members = it->getMembers();
+			for (unsigned long k = 0; k < members.size(); k++)
+				sendMsg(members[k], response);
+			it->removeInvitation(client->clientFD);
 			return;
 		}
 	}
 
-	Channel newChannel(channelName);
+	Channel newChannel(channelName, this);
 	newChannel.addMember(client->clientFD);
 	newChannel.addOperator(client->clientFD);
 	_Channels.push_back(newChannel);
@@ -1100,18 +1259,13 @@ void Server::removeClient(int fd)
 	if (clientToRemove == NULL)
 		return;
 
+	handleQuit(clientToRemove, "");
+
 	for (std::vector<Channel>::iterator it = _Channels.begin();
 		 it != _Channels.end();)
 	{
-		if (it->isMember(fd))
-		{
-			it->leaveChannel(clientToRemove);
-			it->RemoveMembersCount();
-		}
-		if (!it->hasMember())
-			it = _Channels.erase(it);
-		else
-			++it;
+		it->removeInvitation(fd);
+		++it;
 	}
 
 	close(fd);

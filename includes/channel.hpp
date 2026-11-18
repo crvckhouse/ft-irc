@@ -2,9 +2,11 @@
 #include <string>
 #include <vector>
 #include "client.hpp"
+class Server;
 class Channel
 {
 private:
+	Server *_server;
 	std::string _name;
 	// std::vector<client *> _members;
 	std::vector<int> _operators;
@@ -16,8 +18,12 @@ private:
 	long long int _membersLimit;
 	long long int _membersCount;
 	std::vector<int> _invited;
+	void sendNumeric(int fd, int code, const std::string &params,
+					 const std::string &text);
+	void sendModeMessage(int fd, const std::string &mode,
+						 const std::string &dest);
 public:
-	Channel(std::string channelName);
+	Channel(std::string channelName, Server *server);
 	~Channel();
 	void addMember(int fd);
 	void addOperator(int fd);
@@ -50,5 +56,3 @@ public:
 	bool isInvited(int fd);
 	void removeInvitation(int fd);
 };
-
-

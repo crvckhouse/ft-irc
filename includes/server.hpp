@@ -12,16 +12,11 @@
 #include <sstream>
 #include <cerrno>
 #include <stdexcept>
-//-------------------------------------------------------//
-#define RESET   "\033[0m"
-#define ROUGE   "\033[31m"
-#define VERT    "\033[32m"
-#define JAUNE   "\033[33m"
-#define BLEU    "\033[34m"
-#define GRAS    "\033[1m"
+
 
 class Server
 {
+	friend class Channel;
 private:
 	int _serverFd;
 	const int _port;
@@ -56,10 +51,11 @@ private:
 	void tryRegister(client *client);
 	void handleClose(client *client);
 	void removeClient(int fd);
+	client *findClient(int fd);
+	void enablePollout(int fd);
+	void disablePollout(int fd);
 public:
 	Server(const int port, const std::string passwd);
 	~Server();
 };
-
-
 
