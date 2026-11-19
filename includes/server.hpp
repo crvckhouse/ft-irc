@@ -18,6 +18,7 @@ class Server
 {
 	friend class Channel;
 private:
+	static volatile sig_atomic_t _running;
 	int _serverFd;
 	const int _port;
 	const std::string _passwd;
@@ -54,8 +55,9 @@ private:
 	client *findClient(int fd);
 	void enablePollout(int fd);
 	void disablePollout(int fd);
+	static void handleSignal(int signal);
+	void cleanup();
 public:
 	Server(const int port, const std::string passwd);
 	~Server();
 };
-

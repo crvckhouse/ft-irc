@@ -1,4 +1,4 @@
-NAME = ft-irc
+NAME = ircserv
 SRC = main.cpp srcs/server.cpp srcs/channel.cpp srcs/cmd.cpp srcs/utils.cpp
 OBJS = $(SRC:.cpp=.o)
 HEADERS = includes/server.hpp includes/client.hpp includes/channel.hpp 

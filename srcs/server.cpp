@@ -5,9 +5,19 @@
 #include <cstring>
 #include <stdexcept>
 
+volatile sig_atomic_t Server::_running = 1;
+
+void Server::handleSignal(int signal)
+{
+	(void)signal;
+	Server::_running = 0;
+}
+
 Server::Server(const int port, const std::string passwd) : _port(port), _passwd(passwd)
 {
 	signal(SIGPIPE, SIG_IGN);
+	signal(SIGINT, Server::handleSignal);
+	signal(SIGTERM, Server::handleSignal);
 	_serverFd = createSocket();
 	if (_serverFd == -1)
 		throw std::runtime_error("socket() failed");
@@ -19,7 +29,21 @@ Server::Server(const int port, const std::string passwd) : _port(port), _passwd(
 }
 Server::~Server()
 {
-	close(_serverFd);
+	cleanup();
+}
+
+void Server::cleanup()
+{
+	for (std::vector<client>::iterator it = _clients.begin();
+		 it != _clients.end(); ++it)
+		close(it->clientFD);
+	_clients.clear();
+	_pollFds.clear();
+	if (_serverFd != -1)
+	{
+		close(_serverFd);
+		_serverFd = -1;
+	}
 }
 int Server::createSocket()
 {
@@ -28,8 +52,7 @@ int Server::createSocket()
 	fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (fd == -1)
 		return (-1);
-	int flags = fcntl(fd, F_GETFL, 0);
-	if (flags == -1 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1)
+	if (fcntl(fd, F_SETFL, O_NONBLOCK) == -1)
 	{
 		close(fd);
 		return (-1);
@@ -62,8 +85,7 @@ int Server::clientAccept()
 			std::cout << "Accept() error" << std::endl;
 		return (-1);
 	}
-	int flags = fcntl(clientFd, F_GETFL, 0);
-	if (flags == -1 || fcntl(clientFd, F_SETFL, flags | O_NONBLOCK) == -1)
+	if (fcntl(clientFd, F_SETFL, O_NONBLOCK) == -1)
 	{
 		close(clientFd);
 		return (-1);
@@ -94,12 +116,14 @@ void Server::setupPoll()
 }
 void Server::run()
 {
-	while (true)
+	while (_running)
 	{
 		int pollRet;
 		pollRet = poll(_pollFds.data(), _pollFds.size(), -1);
 		if (pollRet == -1)
 		{
+			if (!_running && errno == EINTR)
+				break;
 			std::cout << "poll() error" << std::endl;
 			continue;
 		}
@@ -130,15 +154,14 @@ void Server::run()
 					{
 						recipient->outputBuffer.erase(0, bytesSent);
 						if (recipient->outputBuffer.empty())
-						{
 							disablePollout(fd);
-						}
 					}
-					else if (bytesSent == -1 &&
-							 errno != EINTR &&
-							 errno != EAGAIN &&
-							 errno != EWOULDBLOCK)
+					else if (bytesSent == -1)
 					{
+						if (errno == EINTR ||
+							errno == EAGAIN ||
+							errno == EWOULDBLOCK)
+							continue;
 						std::cout << "send() error on fd " << fd
 								  << ": " << strerror(errno) << std::endl;
 						removeClient(fd);
@@ -165,30 +188,27 @@ void Server::run()
 						  << _pollFds[i].fd << std::endl;
 				if (i == 0)
 				{
-					while (true)
-					{
-						client cl;
-						_clientFD = clientAccept();
+					client cl;
+					_clientFD = clientAccept();
 
-						if (_clientFD < 0)
-							break;
+					if (_clientFD < 0)
+						continue;
 
-						cl.clientFD = _clientFD;
-						cl.buffer = "";
-						cl.outputBuffer = "";
-						cl.auth = false;
-						cl.nick = false;
-						cl.user = false;
-						cl.registered = false;
-						_clients.push_back(cl);
+					cl.clientFD = _clientFD;
+					cl.buffer = "";
+					cl.outputBuffer = "";
+					cl.auth = false;
+					cl.nick = false;
+					cl.user = false;
+					cl.registered = false;
+					_clients.push_back(cl);
 
-						std::cout << "CLIENTS SIZE = " << _clients.size() << std::endl;
-						struct pollfd clientPollFd;
-						clientPollFd.fd = _clientFD;
-						clientPollFd.events = POLLIN;
-						clientPollFd.revents = 0;
-						_pollFds.push_back(clientPollFd);
-					}
+					std::cout << "CLIENTS SIZE = " << _clients.size() << std::endl;
+					struct pollfd clientPollFd;
+					clientPollFd.fd = _clientFD;
+					clientPollFd.events = POLLIN;
+					clientPollFd.revents = 0;
+					_pollFds.push_back(clientPollFd);
 				}
 				else
 				{
