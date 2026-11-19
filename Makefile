@@ -1,5 +1,5 @@
 NAME = ft-irc
-SRC = main.cpp srcs/server.cpp srcs/channel.cpp
+SRC = main.cpp srcs/server.cpp srcs/channel.cpp srcs/cmd.cpp srcs/utils.cpp
 OBJS = $(SRC:.cpp=.o)
 HEADERS = includes/server.hpp includes/client.hpp includes/channel.hpp 
 CXX = c++

@@ -75,16 +75,6 @@ bool Channel::isOperator(int fd)
 	}
 	return false;
 }
-// void Channel::addMember(client *member)
-// {
-// 	if (!isMember(member->clientFD))
-// 	{
-// 		_members.push_back(member->clientFD);
-// 		// std::cout << "MEMBER ADDED" << std::endl;
-// 		return;
-// 	}
-// 	std::cout << "MEMBER ALREADY EXISTS" << std::endl;
-// }
 
 void Channel::addMember(int fd)
 {
@@ -116,7 +106,6 @@ void Channel::addOperator(int fd)
 		}
 	}
 	_operators.push_back(fd);
-	// std::cout << "OPERATOR ADDED" << std::endl;
 }
 
 void Channel::leaveChannel(client *member)
@@ -126,9 +115,7 @@ void Channel::leaveChannel(client *member)
 	{
 		if (*it == member->clientFD)
 		{
-			// std::cout << "DELETE MEMBERS" << std::endl;
 			_members.erase(it);
-
 			return;
 		}
 	}
@@ -140,9 +127,7 @@ void Channel::removeOperator(int fd)
 	{
 		if (*it == fd)
 		{
-			// std::cout << "DELETE OPERATOR" << std::endl;
 			_operators.erase(it);
-
 			return;
 		}
 	}
