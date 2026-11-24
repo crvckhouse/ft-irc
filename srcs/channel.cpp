@@ -78,22 +78,11 @@ bool Channel::isOperator(int fd)
 
 void Channel::addMember(int fd)
 {
-	std::cout << "ADDING FD " << fd
-			  << " TO CHANNEL " << _name << std::endl;
-
 	if (!isMember(fd))
 	{
 		_members.push_back(fd);
-
-		std::cout << "MEMBERS NOW = " << _members.size() << std::endl;
-
-		for (unsigned long i = 0; i < _members.size(); i++)
-			std::cout << "MEMBER FD = " << _members[i] << std::endl;
-
 		return;
 	}
-
-	std::cout << "MEMBER ALREADY EXISTS" << std::endl;
 }
 
 void Channel::addOperator(int fd)
@@ -275,7 +264,6 @@ long long int Channel::getMembersCount()
 void Channel::addMembersCount()
 {
 	_membersCount++;
-	std::cout << "MEMBERS COUNT :" << _membersCount << std::endl;
 }
 void Channel::RemoveMembersCount()
 {
@@ -343,15 +331,8 @@ bool Channel::getTopicrestriction()
 
 void Channel::sendToAll(client *sender, std::string msg)
 {
-	std::cout << "===== SEND TO ALL =====" << std::endl;
-	std::cout << "SENDER FD = " << sender->clientFD << std::endl;
-	std::cout << "MEMBERS SIZE = " << _members.size() << std::endl;
-
 	for (unsigned long i = 0; i < _members.size(); i++)
 	{
-		std::cout << "MEMBER[" << i << "] FD = "
-				  << _members[i] << std::endl;
-
 		if (_members[i] != sender->clientFD)
 		{
 			std::string response;
@@ -368,10 +349,6 @@ void Channel::sendToAll(client *sender, std::string msg)
 			response += " :";
 			response += msg;
 			response += "\r\n";
-
-			std::cout << "SENDING TO FD " << _members[i] << std::endl;
-			std::cout << "RESPONSE = [" << response << "]" << std::endl;
-
 			_server->sendMsg(_members[i], response);
 		}
 	}

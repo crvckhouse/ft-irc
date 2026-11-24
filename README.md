@@ -32,10 +32,10 @@ Start the server with a port and a connection password:
 ./ircserv <port> <password>
 
 
-The port must be between `1` and `65535`. The password must not contain spaces.
+The port must be between `1024` and `65535`. The password must not contain spaces.
 For example:
 
-./ircserv 6667 secret
+./ircserv 6667 password
 
 
 ### Connecting with Irssi
@@ -46,7 +46,7 @@ irssi
 
 Then connect to the server:
 
-/connect 127.0.0.1 6667 secret
+/connect 127.0.0.1 6667 password
 
 
 ### Main commands
@@ -79,4 +79,4 @@ https://www.ibm.com/docs/fr/i/7.6.0?topic=designs-using-poll-instead-select
 https://usr.lmf.cnrs.fr/~kn/files/manpages-fr/man2/recv.2.html
 https://www.youtube.com/watch?v=cNdlrbZSkyQ
 
-IA has been used for repetitive tasks, and also for debugging, and for some understanding of really specific notions.
+IA has been used for repetitive tasks, and also for debugging, and for some deep understanding of really specific notions.

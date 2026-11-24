@@ -152,8 +152,6 @@ void Server::handleJoin(client *client, std::string channelName)
 void Server::handleNotice(client *sender, std::string argument)
 {
 	size_t pos = argument.find(" ", 0);
-	std::cout << "NOTICE HANDLER CALLED" << std::endl;
-	// std:: cout << "TESSSSST SEND2ALL" ;
 	if (pos == std::string::npos)
 		return;
 	std::string dest = argument.substr(0, pos);
@@ -165,9 +163,6 @@ void Server::handleNotice(client *sender, std::string argument)
 	if (msg[0] == ':')
 		msg.erase(0, 1);
 
-	std::cout << "ARGUMENT = [" << argument << "]" << std::endl;
-	std::cout << "DEST = [" << dest << "]" << std::endl;
-	std::cout << "MSG = [" << msg << "]" << std::endl;
 	for (unsigned long i = 0; i < _clients.size(); i++)
 	{
 		if (_clients[i].nickName == dest)
@@ -273,15 +268,12 @@ void Server::handlePart(client *client, std::string channelName)
 			return;
 		}
 	}
-	std::cout << "CHANNEL NOT FOUND / CANNOT LEAVE" << std::endl;
 }
 
 void Server::handlePrivmsg(client *sender, std::string argument)
 {
 
 	size_t pos = argument.find(" ", 0);
-	std::cout << "PRIVMSG HANDLER CALLED" << std::endl;
-	// std:: cout << "TESSSSST SEND2ALL" ;
 	if (pos == std::string::npos)
 		return;
 	std::string dest = argument.substr(0, pos);
@@ -297,9 +289,6 @@ void Server::handlePrivmsg(client *sender, std::string argument)
 	if (msg[0] == ':')
 		msg.erase(0, 1);
 
-	std::cout << "ARGUMENT = [" << argument << "]" << std::endl;
-	std::cout << "DEST = [" << dest << "]" << std::endl;
-	std::cout << "MSG = [" << msg << "]" << std::endl;
 	for (unsigned long i = 0; i < _clients.size(); i++)
 	{
 		if (_clients[i].nickName == dest)

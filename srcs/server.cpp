@@ -90,7 +90,6 @@ int Server::clientAccept()
 		close(clientFd);
 		return (-1);
 	}
-	std::cout << "ACCEPTED CLIENT FD = " << clientFd << std::endl;
 	return clientFd;
 }
 void Server::setSocketOptions()
@@ -130,8 +129,6 @@ void Server::run()
 		unsigned long pollFdSize = _pollFds.size();
 		for (long unsigned int i = 0; i < pollFdSize; i++)
 		{
-			std::cout << "CHECK FD " << _pollFds[i].fd
-					  << " REVENTS = " << _pollFds[i].revents << std::endl;
 			if (i != 0 && (_pollFds[i].revents & (POLLHUP | POLLERR | POLLNVAL)))
 			{
 				int fd = _pollFds[i].fd;
@@ -184,8 +181,6 @@ void Server::run()
 			}
 			if (_pollFds[i].revents & POLLIN)
 			{
-				std::cout << "POLLIN FD = "
-						  << _pollFds[i].fd << std::endl;
 				if (i == 0)
 				{
 					client cl;
@@ -203,7 +198,7 @@ void Server::run()
 					cl.registered = false;
 					_clients.push_back(cl);
 
-					std::cout << "CLIENTS SIZE = " << _clients.size() << std::endl;
+
 					struct pollfd clientPollFd;
 					clientPollFd.fd = _clientFD;
 					clientPollFd.events = POLLIN;
@@ -232,10 +227,8 @@ void Server::run()
 								{
 									std::string cmd;
 									cmd = _clients[j].buffer.substr(0, pos);
-									// std::cout << "COMMAND = [" << cmd << "]" << std::endl;
 									_clients[j].buffer.erase(0, pos + 2);
 									pos = _clients[j].buffer.find("\r\n");
-									std::cout << "COMMAND RECEIVED: [" << cmd << "]" << std::endl;
 									int currentFd = _clients[j].clientFD;
 									parseCmd(cmd, currentFd);
 									if (findClient(currentFd) == NULL)
@@ -249,13 +242,10 @@ void Server::run()
 							i--;
 							continue;
 						}
-						// std::cout << "Data received by client!: " << _pollFds[i].fd << " --->" << BUFFER << std::endl;
-						// send(_pollFds[i].fd, BUFFER, bytes_read, 0);
 					}
 					else if (bytes_read == 0)
 					{
 						int fd = _pollFds[i].fd;
-						std::cout << "Client disconnected!" << std::endl;
 						removeClient(fd);
 						pollFdSize--;
 						i--;
